@@ -15,17 +15,6 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 
-/**
- * Inspects a PDF's structural characteristics and recommends
- * the optimal extraction strategy (NATIVE, OCR, or HYBRID).
- *
- * Deliberately read-only — samples up to 5 pages to detect text density.
- * Full text extraction happens downstream in PdfExtractionOrchestrator.
- *
- * Uses score-based research paper detection to avoid the "references on
- * page 14" problem — where the first-5-page sample misses the references
- * section and falls back to UNKNOWN incorrectly.
- */
 @Slf4j
 @Service
 public class PdfInspectionService {
@@ -39,7 +28,6 @@ public class PdfInspectionService {
     public PdfInspectionResult inspect(byte[] pdfBytes) {
         try (PDDocument document = Loader.loadPDF(pdfBytes)) {
 
-            // Catch password-protected PDFs with a clean, explicit exception
             if (document.isEncrypted()) {
                 throw new PdfPasswordException(
                         "This PDF is password-protected. Please provide an unlocked version.");
@@ -54,8 +42,7 @@ public class PdfInspectionService {
                         "PDF exceeds the maximum allowed page count of " + maxPages + " pages.");
             }
 
-            // Sample first 5 pages to detect text density
-            // setSortByPosition(true) is critical for multi-column layouts
+            // Sample first 5 pages for strategy decision
             PDFTextStripper sampleStripper = new PDFTextStripper();
             sampleStripper.setSortByPosition(true);
             sampleStripper.setStartPage(1);
@@ -63,26 +50,30 @@ public class PdfInspectionService {
             String sampleText = sampleStripper.getText(document);
             int sampleChars = (sampleText == null) ? 0 : sampleText.trim().length();
 
+            // Sample wider range (up to page 10) for classification only
+            // Keeps strategy decision fast while giving classifier more signal
+            PDFTextStripper classifyStripper = new PDFTextStripper();
+            classifyStripper.setSortByPosition(true);
+            classifyStripper.setStartPage(1);
+            classifyStripper.setEndPage(Math.min(10, totalPages));
+            String classifySample = classifyStripper.getText(document);
+
             boolean hasEmbeddedText = sampleChars > 0;
             boolean isLowTextDensity = sampleChars < lowTextThreshold;
 
-            // ── Extraction Strategy Decision ──────────────────────────────────
             ExtractionStrategy strategy;
             if (!hasEmbeddedText) {
                 strategy = ExtractionStrategy.OCR;
                 log.info("Inspection: no embedded text — routing to OCR");
             } else if (isLowTextDensity) {
                 strategy = ExtractionStrategy.HYBRID;
-                log.info("Inspection: low text density ({} chars in sample) — routing to HYBRID",
-                        sampleChars);
+                log.info("Inspection: low text density ({} chars) — routing to HYBRID", sampleChars);
             } else {
                 strategy = ExtractionStrategy.NATIVE;
-                log.info("Inspection: sufficient embedded text ({} chars) — routing to NATIVE",
-                        sampleChars);
+                log.info("Inspection: sufficient embedded text ({} chars) — routing to NATIVE", sampleChars);
             }
 
-            // ── Pre-classification (score-based) ─────────────────────────────
-            DocumentType docType = preclassify(totalPages, sampleChars, sampleText);
+            DocumentType docType = preclassify(totalPages, sampleChars, classifySample);
 
             return PdfInspectionResult.builder()
                     .totalPages(totalPages)
@@ -96,13 +87,12 @@ public class PdfInspectionService {
         } catch (PdfPasswordException | PdfProcessingException ex) {
             throw ex;
         } catch (InvalidPasswordException ex) {
-            // PDFBox throws this specific exception for wrong/missing password
             throw new PdfPasswordException(
                     "This PDF is password-protected. Please provide an unlocked version.");
         } catch (IOException ex) {
             log.error("PDFBox inspection IO error: {}", ex.getMessage());
             throw new PdfProcessingException(
-                    "The file could not be read as a valid PDF. It may be corrupted or malformed.", ex);
+                    "The file could not be read as a valid PDF. It may be corrupted.", ex);
         } catch (Exception ex) {
             log.error("Unexpected inspection error: {}", ex.getMessage());
             throw new PdfProcessingException("Failed to inspect PDF structure.", ex);
@@ -110,50 +100,64 @@ public class PdfInspectionService {
     }
 
     /**
-     * Score-based document type pre-classification from the 5-page sample.
+     * Score-based pre-classification from the wider 10-page sample.
      *
-     * WHY score-based: A single-condition check like
-     *   lower.contains("abstract") && lower.contains("references")
-     * fails for academic PDFs where "references" only appears on page 14+,
-     * well outside the 5-page sample window.
-     *
-     * Solution: Award points for multiple independent academic signals.
-     * 3+ points → RESEARCH_PAPER (confident classification without needing
-     * all signals to be present simultaneously).
+     * Priority order:
+     * 1. Research Paper — requires abstract + (references OR conclusion)
+     *    Both checks use the wider sample to avoid the "references only on page 14" problem.
+     * 2. Government Document — IRS/tax publication signals
+     * 3. Legal — boilerplate legal phrases
+     * 4. Invoice/Form — STRICT: page-count guard (≤25) prevents a 142-page IRS
+     *    publication from being classified as a form just because it mentions "form 1040"
+     * 5. Slide Deck — structural: short + low text density
+     * 6. UNKNOWN — let DocumentClassificationService decide after full extraction
      */
     private DocumentType preclassify(int pages, int sampleChars, String sampleText) {
-    // Slide decks: short + low text density
-    if (pages <= 30 && sampleChars < 500) {
-        return DocumentType.SLIDE_DECK;
-    }
+        if (sampleText == null || sampleText.isBlank()) {
+            return DocumentType.UNKNOWN;
+        }
 
-    if (sampleText != null) {
         String lower = sampleText.toLowerCase();
 
-        // Research paper — requires BOTH abstract and references/conclusion
-        boolean hasAbstract = lower.contains("abstract");
+        // ── 1. Research Paper ────────────────────────────────────────────────
+        boolean hasAbstract   = lower.contains("abstract");
         boolean hasReferences = lower.contains("references") || lower.contains("bibliography");
         boolean hasConclusion = lower.contains("conclusion");
         if (hasAbstract && (hasReferences || hasConclusion)) {
+            log.info("Pre-classification: RESEARCH_PAPER");
             return DocumentType.RESEARCH_PAPER;
         }
 
-        // Invoice / Form — financial or tax keywords
-        if (lower.contains("invoice") || lower.contains("bill to")
-                || lower.contains("total amount") || lower.contains("form 1040")
-                || lower.contains("taxpayer") || lower.contains("irs")
-                || lower.contains("internal revenue") || lower.contains("tax return")) {
+        // ── 2. Government / Tax Document ─────────────────────────────────────
+        if (lower.contains("internal revenue service")
+                || lower.contains("department of the treasury")
+                || lower.contains("publication")
+                        && (lower.contains("irs") || lower.contains("taxpayer"))) {
+            log.info("Pre-classification: GOVERNMENT_DOCUMENT");
+            return DocumentType.GOVERNMENT_DOCUMENT;
+        }
+
+        // ── 3. Legal Document ─────────────────────────────────────────────────
+        if (lower.contains("terms and conditions") || lower.contains("whereas")
+                || lower.contains("hereinafter") || lower.contains("party agrees")) {
+            log.info("Pre-classification: LEGAL_DOCUMENT");
+            return DocumentType.LEGAL_DOCUMENT;
+        }
+
+        // ── 4. Invoice / Form — strict page-count guard ───────────────────────
+        if (pages <= 25 && (lower.contains("invoice") || lower.contains("bill to")
+                || lower.contains("total amount") || lower.contains("purchase order"))) {
+            log.info("Pre-classification: INVOICE_OR_FORM");
             return DocumentType.INVOICE_OR_FORM;
         }
 
-        // Legal
-        if (lower.contains("terms and conditions") || lower.contains("whereas")
-                || lower.contains("hereinafter") || lower.contains("party agrees")) {
-            return DocumentType.LEGAL_DOCUMENT;
+        // ── 5. Slide Deck — structural signal ────────────────────────────────
+        if (pages <= 30 && sampleChars < 500) {
+            log.info("Pre-classification: SLIDE_DECK");
+            return DocumentType.SLIDE_DECK;
         }
-    }
 
-    // Default: UNKNOWN — let DocumentClassificationService decide after full text
-    return DocumentType.UNKNOWN;
-}
+        log.info("Pre-classification: UNKNOWN — letting full-text classifier decide");
+        return DocumentType.UNKNOWN;
+    }
 }

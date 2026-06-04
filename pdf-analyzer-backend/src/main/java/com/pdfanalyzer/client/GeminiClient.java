@@ -364,7 +364,7 @@ public class GeminiClient {
                   "keyTakeaway": "<The single most important insight from this document.>"
                 }
 
-                Strict rules:
+                                Strict rules:
                 - Output ONLY the JSON object. Nothing before or after it.
                 - ALL output values MUST be in English, regardless of the document's source language.
                   Preserve proper nouns, technical terms, and titles as-is.
@@ -372,6 +372,12 @@ public class GeminiClient {
                 - Use "Not Found" only if a field genuinely cannot be determined.
                 - summary must contain at least 3 complete, substantive sentences.
                 - keyTakeaway must be specific to this document — not generic filler.
+                - title: Extract ONLY the exact title as it appears printed in the document.
+                  Do NOT paraphrase, infer, or rewrite the title under any circumstances.
+                  If the title cannot be found, return "Not Found".
+                - authors: If more than 5 authors are listed, return the first 3 names
+                  followed by "et al." (e.g., "Mark Chen, Jerry Tworek, Heewoo Jun et al.").
+                  Do NOT return "Not Found" for papers that visibly list authors.
                 %s
 
                 Document text:

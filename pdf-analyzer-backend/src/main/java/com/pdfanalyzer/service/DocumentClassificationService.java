@@ -6,10 +6,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 /**
- * Refines document type classification after full text extraction.
- * Two-pass strategy:
- *   Pass 1 — structural inspection result from PdfInspectionService
- *   Pass 2 — full-text keyword signals (only if inspection returned UNKNOWN)
+ * Second-pass classifier using full extracted text.
+ * Only runs when PdfInspectionService returned UNKNOWN.
  */
 @Slf4j
 @Service
@@ -23,38 +21,36 @@ public class DocumentClassificationService {
             return formatType(structuralType);
         }
 
-        // Full-text classification pass
         if (extractedText == null || extractedText.isBlank()) {
             return formatType(DocumentType.UNKNOWN);
         }
 
         String lower = extractedText.toLowerCase();
 
-        // Research paper — abstract + references together
-        boolean hasAbstract    = lower.contains("abstract");
-        boolean hasReferences  = lower.contains("references") || lower.contains("bibliography");
-        boolean hasConclusion  = lower.contains("conclusion");
+        // Research Paper — academic structure signals
+        boolean hasAbstract   = lower.contains("abstract");
+        boolean hasReferences = lower.contains("references") || lower.contains("bibliography");
+        boolean hasConclusion = lower.contains("conclusion");
         if (hasAbstract && (hasReferences || hasConclusion)) {
             return formatType(DocumentType.RESEARCH_PAPER);
         }
 
-        // Government / Tax document — IRS, tax forms, publications
+        // Government / Tax
         if (lower.contains("internal revenue service") || lower.contains("irs")
-                || lower.contains("form 1040") || lower.contains("taxpayer")
-                || lower.contains("tax return") || lower.contains("publication")
-                || lower.contains("department of the treasury")) {
+                || lower.contains("department of the treasury")
+                || lower.contains("form 1040") || lower.contains("taxpayer")) {
             return formatType(DocumentType.GOVERNMENT_DOCUMENT);
         }
 
-        // Business report
+        // Business Report
         if (lower.contains("executive summary") || lower.contains("quarterly")
                 || lower.contains("fiscal year") || lower.contains("earnings")) {
             return formatType(DocumentType.BUSINESS_REPORT);
         }
 
-        // Slide deck
+        // Slide Deck
         if (lower.contains("agenda") || lower.contains("presented by")
-                || lower.contains("slide") || lower.contains("thank you for listening")) {
+                || lower.contains("thank you for listening")) {
             return formatType(DocumentType.SLIDE_DECK);
         }
 
@@ -64,7 +60,7 @@ public class DocumentClassificationService {
             return formatType(DocumentType.LEGAL_DOCUMENT);
         }
 
-        // Technical manual
+        // Technical Manual
         if (lower.contains("installation") || lower.contains("configuration")
                 || lower.contains("user guide") || lower.contains("troubleshooting")) {
             return formatType(DocumentType.TECHNICAL_MANUAL);
@@ -72,7 +68,7 @@ public class DocumentClassificationService {
 
         // Invoice / Form
         if (lower.contains("invoice") || lower.contains("payable")
-                || lower.contains("receipt") || lower.contains("bill to")) {
+                || lower.contains("bill to") || lower.contains("purchase order")) {
             return formatType(DocumentType.INVOICE_OR_FORM);
         }
 
@@ -81,14 +77,14 @@ public class DocumentClassificationService {
 
     private String formatType(DocumentType type) {
         return switch (type) {
-            case RESEARCH_PAPER     -> "Research Paper";
-            case SLIDE_DECK         -> "Slide Deck / Presentation";
-            case BUSINESS_REPORT    -> "Business Report";
-            case LEGAL_DOCUMENT     -> "Legal Document";
-            case TECHNICAL_MANUAL   -> "Technical Manual";
-            case INVOICE_OR_FORM    -> "Invoice or Form";
+            case RESEARCH_PAPER      -> "Research Paper";
+            case SLIDE_DECK          -> "Slide Deck / Presentation";
+            case BUSINESS_REPORT     -> "Business Report";
+            case LEGAL_DOCUMENT      -> "Legal Document";
+            case TECHNICAL_MANUAL    -> "Technical Manual";
+            case INVOICE_OR_FORM     -> "Invoice or Form";
             case GOVERNMENT_DOCUMENT -> "Government / Tax Document";
-            case UNKNOWN            -> "General Document";
+            case UNKNOWN             -> "General Document";
         };
     }
 }

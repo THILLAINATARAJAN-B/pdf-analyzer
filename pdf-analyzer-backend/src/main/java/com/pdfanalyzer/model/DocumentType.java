@@ -7,6 +7,6 @@ public enum DocumentType {
     LEGAL_DOCUMENT,
     TECHNICAL_MANUAL,
     INVOICE_OR_FORM,
-    GOVERNMENT_DOCUMENT,   // ← new
+    GOVERNMENT_DOCUMENT,
     UNKNOWN
 }
