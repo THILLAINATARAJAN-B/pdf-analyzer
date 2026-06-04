@@ -1,0 +1,44 @@
+# ╔══════════════════════════════════════════════════════════════╗
+# ║           PDF Analyzer — Test Profile Configuration         ║
+# ║  Activated via @ActiveProfiles("test") in test classes.     ║
+# ║  Prevents real Gemini API calls and uses safe limits.       ║
+# ╚══════════════════════════════════════════════════════════════╝
+
+# ── Gemini AI (stubbed — no real API calls in tests) ─────────────
+gemini:
+  api-key: test-key-placeholder
+  base-url: https://generativelanguage.googleapis.com/v1beta
+  model: gemini-1.5-flash
+  max-output-tokens: 256
+  temperature: 0.2
+
+# ── PDF Download Limits ───────────────────────────────────────────
+pdf:
+  download:
+    connect-timeout-ms: 5000
+    read-timeout-ms: 10000
+    max-size-bytes: 52428800     # 50 MB
+    max-redirects: 3
+
+  # ── PDF Processing Limits ───────────────────────────────────────
+  processing:
+    max-pages: 200
+    max-text-chars: 40000
+    low-text-threshold: 100
+    ocr-enabled: true
+
+  # ── OCR Tesseract Path ──────────────────────────────────────────
+  ocr:
+    tessdata-path: /usr/share/tesseract-ocr/5/tessdata
+
+# ── CORS ──────────────────────────────────────────────────────────
+cors:
+  allowed-origins: http://localhost:4200
+
+# ── Logging (suppress noise in test output) ───────────────────────
+logging:
+  level:
+    com.pdfanalyzer: WARN
+    org.springframework.web: WARN
+    org.apache.pdfbox: ERROR
+    net.sourceforge.tess4j: ERROR

@@ -50,10 +50,12 @@ public final class TessdataPathResolver {
 
     private static List<String> defaultCandidates() {
         return List.of(
-                "/usr/share/tesseract-ocr/5/tessdata",
-                "/usr/share/tesseract-ocr/4.00/tessdata",
-                "/usr/local/share/tessdata",
-                "C:\\Program Files\\Tesseract-OCR\\tessdata",
+                "/usr/share/tessdata",                           // ← Alpine Linux (Docker/Railway)
+                "/usr/share/tesseract-ocr/5/tessdata",          // Debian/Ubuntu (Tesseract 5)
+                "/usr/share/tesseract-ocr/4.00/tessdata",       // Debian/Ubuntu (Tesseract 4)
+                "/usr/local/share/tessdata",                    // macOS Homebrew
+                "/opt/homebrew/share/tessdata",                 // macOS Apple Silicon Homebrew
+                "C:\\Program Files\\Tesseract-OCR\\tessdata",   // Windows
                 "C:\\Program Files (x86)\\Tesseract-OCR\\tessdata"
         );
     }
