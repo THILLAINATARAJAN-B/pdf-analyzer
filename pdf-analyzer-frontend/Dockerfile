@@ -16,11 +16,11 @@ RUN npm run build
 FROM nginx:1.27-alpine
 
 RUN rm /etc/nginx/conf.d/default.conf
-COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# ✅ FIXED LINE (IMPORTANT)
+COPY nginx.conf /etc/nginx/templates/default.conf.template
+
 COPY --from=builder /app/dist/pdf-analyzer-frontend /usr/share/nginx/html
 
 EXPOSE 80
 
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["/bin/sh", "-c", "envsubst '$PORT' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]
