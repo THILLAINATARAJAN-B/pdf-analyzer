@@ -1,0 +1,109 @@
+.results {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.row-two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+
+  @media (max-width: 520px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.result-item {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  padding: 18px 20px;
+  transition: border-color var(--transition);
+
+  &:hover { border-color: #c4c9dd; }
+}
+
+.takeaway-item {
+  background: linear-gradient(145deg, #fefbff 0%, #f5f3ff 100%);
+  border-color: var(--color-primary-border);
+
+  &:hover { border-color: rgba(99,102,241,0.4); }
+}
+
+.item-top {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 12px;
+}
+
+.item-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+
+  &.icon-type    { background: var(--color-primary-bg); color: var(--color-primary); }
+  &.icon-authors { background: #ecfdf5; color: #059669; }
+  &.icon-title   { background: #eff6ff; color: #2563eb; }
+  &.icon-summary { background: #fefce8; color: #ca8a04; }
+  &.icon-takeaway { background: var(--color-primary-bg); color: var(--color-primary); }
+}
+
+.item-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--color-text-faint);
+}
+
+.type-pill {
+  display: inline-flex;
+  padding: 5px 14px;
+  background: var(--color-primary-bg);
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary-border);
+  border-radius: var(--radius-full);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.item-value {
+  font-size: 15px;
+  color: var(--color-text);
+  line-height: 1.65;
+}
+
+.authors-value {
+  font-size: 14px;
+  color: var(--color-text-muted);
+  line-height: 1.6;
+}
+
+.title-value {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text);
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+}
+
+.summary-value {
+  font-size: 15px;
+  color: var(--color-text-muted);
+  line-height: 1.75;
+}
+
+.takeaway-value {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--color-text);
+  line-height: 1.7;
+  font-style: italic;
+}

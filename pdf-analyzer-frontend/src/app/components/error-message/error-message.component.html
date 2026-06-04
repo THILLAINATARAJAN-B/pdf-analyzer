@@ -1,0 +1,16 @@
+<div class="error-card" role="alert">
+  <div class="error-icon" aria-hidden="true">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+    </svg>
+  </div>
+  <div class="error-body">
+    <p class="error-title">Analysis failed</p>
+    <p class="error-message">{{ message }}</p>
+    <ul class="tips" aria-label="Troubleshooting tips">
+      <li>Ensure the URL points directly to a downloadable PDF</li>
+      <li>Check the PDF is publicly accessible (no login required)</li>
+      <li>Try the example URL to verify the service is working</li>
+    </ul>
+  </div>
+</div>

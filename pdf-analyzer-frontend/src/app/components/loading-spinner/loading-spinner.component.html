@@ -1,0 +1,27 @@
+<div class="loading-card" role="status" aria-label="Analyzing PDF document">
+  <div class="spinner-wrap" aria-hidden="true">
+    <div class="ring"></div>
+    <div class="ring-inner"></div>
+    <div class="logo-center">
+      <svg width="22" height="22" viewBox="0 0 32 32" fill="none">
+        <rect width="32" height="32" rx="9" fill="#6366f1"/>
+        <path d="M9 8h8l6 6v10a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" fill="white" fill-opacity="0.95"/>
+        <path d="M17 8l6 6h-5a1 1 0 0 1-1-1V8z" fill="white" fill-opacity="0.45"/>
+      </svg>
+    </div>
+  </div>
+
+  <div class="loading-copy">
+    <h3>Analyzing your document</h3>
+    <p>This may take 15–30 seconds depending on PDF size</p>
+  </div>
+
+  <div class="steps-list">
+    @for (step of steps; track step.label; let i = $index) {
+      <div class="step-row" [style.animation-delay]="(i * 0.45) + 's'">
+        <div class="step-dot" aria-hidden="true"></div>
+        <span>{{ step.label }}</span>
+      </div>
+    }
+  </div>
+</div>

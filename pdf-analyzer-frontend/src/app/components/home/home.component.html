@@ -1,0 +1,152 @@
+<div class="page">
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="hero-chip">
+      <span class="chip-dot"></span>
+      AI-Powered Document Intelligence
+    </div>
+    <h1 class="hero-title">
+      Instant insights from<br>
+      <span class="hero-accent">any PDF document</span>
+    </h1>
+    <p class="hero-sub">
+      Paste a public PDF URL. Our server downloads it, extracts the text,
+      and sends it to Google Gemini — returning structured analysis in seconds.
+    </p>
+  </section>
+
+  <!-- Input Card -->
+  <section class="card input-card" aria-label="PDF URL analyzer">
+    <form [formGroup]="form" (ngSubmit)="submit()" novalidate>
+
+      <div class="field-wrap">
+        <label class="field-label" for="pdfUrl">PDF URL</label>
+        <div class="input-row">
+          <div class="input-icon" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+            </svg>
+          </div>
+          <input
+            id="pdfUrl"
+            formControlName="pdfUrl"
+            type="url"
+            class="url-input"
+            [class.has-error]="urlCtrl.invalid && urlCtrl.touched"
+            placeholder="https://arxiv.org/pdf/1706.03762"
+            autocomplete="url"
+            spellcheck="false"
+            [attr.aria-invalid]="urlCtrl.invalid && urlCtrl.touched"
+            [disabled]="state.loading"
+          />
+        </div>
+        <div class="field-footer">
+          <span class="field-hint">Paste any publicly accessible PDF URL</span>
+          @if (urlCtrl.invalid && urlCtrl.touched) {
+            <span class="field-error" role="alert">{{ urlError }}</span>
+          }
+        </div>
+      </div>
+
+      <div class="actions">
+        <button
+          type="button"
+          class="btn btn-ghost"
+          (click)="useExample()"
+          [disabled]="state.loading"
+          aria-label="Use example PDF URL">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+          Try example
+        </button>
+
+        <div class="actions-right">
+          @if (state.result || state.error) {
+            <button
+              type="button"
+              class="btn btn-secondary"
+              (click)="clear()"
+              [disabled]="state.loading">
+              Clear
+            </button>
+          }
+          <button
+            type="submit"
+            class="btn btn-primary"
+            [disabled]="state.loading"
+            [attr.aria-busy]="state.loading">
+            @if (state.loading) {
+              <span class="btn-spinner" aria-hidden="true"></span>
+              Analyzing…
+            } @else {
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
+              Analyze PDF
+            }
+          </button>
+        </div>
+      </div>
+
+    </form>
+  </section>
+
+  <!-- Pipeline steps -->
+  <div class="pipeline" role="list" aria-label="How it works">
+    <div class="pipe-step" role="listitem">
+      <div class="pipe-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      </div>
+      <span>Download PDF</span>
+    </div>
+    <div class="pipe-arrow" aria-hidden="true">→</div>
+    <div class="pipe-step" role="listitem">
+      <div class="pipe-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+      </div>
+      <span>Extract text</span>
+    </div>
+    <div class="pipe-arrow" aria-hidden="true">→</div>
+    <div class="pipe-step" role="listitem">
+      <div class="pipe-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+      </div>
+      <span>Gemini analysis</span>
+    </div>
+    <div class="pipe-arrow" aria-hidden="true">→</div>
+    <div class="pipe-step" role="listitem">
+      <div class="pipe-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      </div>
+      <span>Structured results</span>
+    </div>
+  </div>
+
+  <!-- Loading -->
+  @if (state.loading) {
+    <section class="result-area" role="status" aria-live="polite">
+      <app-loading-spinner />
+    </section>
+  }
+
+  <!-- Error -->
+  @if (state.error && !state.loading) {
+    <section class="result-area" role="alert" aria-live="assertive">
+      <app-error-message [message]="state.error" />
+    </section>
+  }
+
+  <!-- Result -->
+  @if (state.result && !state.loading) {
+    <section class="result-area" aria-live="polite" aria-label="Analysis results">
+      <div class="result-header">
+        <div class="result-badge">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+          Analysis complete
+        </div>
+        <p class="result-sub">AI-extracted insights from your document</p>
+      </div>
+      <app-result-card [result]="state.result" />
+    </section>
+  }
+
+</div>
