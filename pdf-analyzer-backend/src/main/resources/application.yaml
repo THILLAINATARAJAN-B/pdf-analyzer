@@ -30,7 +30,7 @@ management:
         include: health,info
   endpoint:
     health:
-      show-details: when-authorized
+      show-details: never        # ← Fixed: was when-authorized (needs Spring Security)
 
 # ── PDF Download ──────────────────────────────────────────────
 pdf:
