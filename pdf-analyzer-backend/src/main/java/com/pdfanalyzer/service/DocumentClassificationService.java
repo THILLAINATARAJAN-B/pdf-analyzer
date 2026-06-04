@@ -7,88 +7,70 @@ import org.springframework.stereotype.Service;
 
 /**
  * Refines document type classification after full text extraction.
- * Returns a human-readable type hint injected into the Gemini prompt
- * to improve structured output accuracy.
- *
- * Two-pass classification:
- * Pass 1 — Use structural inspection result if non-UNKNOWN (fast path).
- * Pass 2 — Score-based analysis of the full extracted text.
- *
- * WHY score-based for research papers:
- * Smart sampling extracts first 3 + last 2 pages, so "references" IS
- * included in the sample (last 2 pages). However, truncation or garbled
- * reference lists can still cause lower.contains("references") to miss.
- * A weighted multi-signal approach is significantly more robust.
+ * Two-pass strategy:
+ *   Pass 1 — structural inspection result from PdfInspectionService
+ *   Pass 2 — full-text keyword signals (only if inspection returned UNKNOWN)
  */
 @Slf4j
 @Service
 public class DocumentClassificationService {
 
     public String classify(String extractedText, PdfInspectionResult inspection) {
-
-        // Pass 1 — Trust structural pre-classification if confident
         DocumentType structuralType = inspection.getPreclassifiedType();
+
         if (structuralType != DocumentType.UNKNOWN) {
             log.info("Document type from structural inspection: {}", structuralType);
             return formatType(structuralType);
         }
 
-        // Pass 2 — Score-based full-text analysis
+        // Full-text classification pass
         if (extractedText == null || extractedText.isBlank()) {
-            return "Unknown Document";
+            return formatType(DocumentType.UNKNOWN);
         }
 
         String lower = extractedText.toLowerCase();
 
-        // ── Research Paper Score ──────────────────────────────────────────────
-        // Multiple weighted signals — any 3 academic markers is a strong classification.
-        // This avoids the fragile single-condition "abstract AND references" check.
+        // Research paper — abstract + references together
         boolean hasAbstract    = lower.contains("abstract");
-        boolean hasReferences  = lower.contains("references")
-                              || lower.contains("bibliography")
-                              || lower.contains("works cited");
-        boolean hasIntro       = lower.contains("introduction");
-        boolean hasConclusion  = lower.contains("conclusion")
-                              || lower.contains("discussion");
-        boolean hasDoi         = lower.contains("doi:") || lower.contains("arxiv")
-                              || lower.contains("arxiv.org");
-        boolean hasEtAl        = lower.contains("et al.");
-        boolean hasFigure      = lower.contains("figure") || lower.contains("fig.");
-        boolean hasAcademic    = lower.contains("table") || lower.contains("section")
-                              || lower.contains("keywords");
-
-        int researchScore = (hasAbstract   ? 2 : 0)
-                          + (hasReferences ? 2 : 0)
-                          + (hasIntro      ? 1 : 0)
-                          + (hasConclusion ? 1 : 0)
-                          + (hasDoi        ? 2 : 0)
-                          + (hasEtAl       ? 2 : 0)
-                          + (hasFigure     ? 1 : 0)
-                          + (hasAcademic   ? 1 : 0);
-
-        if (researchScore >= 4) {
-            log.info("Classified as RESEARCH_PAPER (score={})", researchScore);
+        boolean hasReferences  = lower.contains("references") || lower.contains("bibliography");
+        boolean hasConclusion  = lower.contains("conclusion");
+        if (hasAbstract && (hasReferences || hasConclusion)) {
             return formatType(DocumentType.RESEARCH_PAPER);
         }
 
-        // ── Other document types ──────────────────────────────────────────────
-        if (lower.contains("agenda") || lower.contains("presented by")
-                || lower.contains("slide") || lower.contains("click to edit")) {
-            return formatType(DocumentType.SLIDE_DECK);
+        // Government / Tax document — IRS, tax forms, publications
+        if (lower.contains("internal revenue service") || lower.contains("irs")
+                || lower.contains("form 1040") || lower.contains("taxpayer")
+                || lower.contains("tax return") || lower.contains("publication")
+                || lower.contains("department of the treasury")) {
+            return formatType(DocumentType.GOVERNMENT_DOCUMENT);
         }
-        if (lower.contains("executive summary") || lower.contains("quarterly report")
-                || lower.contains("fiscal year") || lower.contains("annual report")) {
+
+        // Business report
+        if (lower.contains("executive summary") || lower.contains("quarterly")
+                || lower.contains("fiscal year") || lower.contains("earnings")) {
             return formatType(DocumentType.BUSINESS_REPORT);
         }
+
+        // Slide deck
+        if (lower.contains("agenda") || lower.contains("presented by")
+                || lower.contains("slide") || lower.contains("thank you for listening")) {
+            return formatType(DocumentType.SLIDE_DECK);
+        }
+
+        // Legal
         if (lower.contains("terms and conditions") || lower.contains("clause")
-                || lower.contains("party agrees") || lower.contains("hereinafter")
-                || lower.contains("whereas")) {
+                || lower.contains("party agrees") || lower.contains("hereinafter")) {
             return formatType(DocumentType.LEGAL_DOCUMENT);
         }
+
+        // Technical manual
         if (lower.contains("installation") || lower.contains("configuration")
-                || lower.contains("user guide") || lower.contains("getting started")) {
+                || lower.contains("user guide") || lower.contains("troubleshooting")) {
             return formatType(DocumentType.TECHNICAL_MANUAL);
         }
+
+        // Invoice / Form
         if (lower.contains("invoice") || lower.contains("payable")
                 || lower.contains("receipt") || lower.contains("bill to")) {
             return formatType(DocumentType.INVOICE_OR_FORM);
@@ -99,13 +81,14 @@ public class DocumentClassificationService {
 
     private String formatType(DocumentType type) {
         return switch (type) {
-            case RESEARCH_PAPER   -> "Research Paper";
-            case SLIDE_DECK       -> "Slide Deck / Presentation";
-            case BUSINESS_REPORT  -> "Business Report";
-            case LEGAL_DOCUMENT   -> "Legal Document";
-            case TECHNICAL_MANUAL -> "Technical Manual";
-            case INVOICE_OR_FORM  -> "Invoice or Form";
-            case UNKNOWN          -> "General Document";
+            case RESEARCH_PAPER     -> "Research Paper";
+            case SLIDE_DECK         -> "Slide Deck / Presentation";
+            case BUSINESS_REPORT    -> "Business Report";
+            case LEGAL_DOCUMENT     -> "Legal Document";
+            case TECHNICAL_MANUAL   -> "Technical Manual";
+            case INVOICE_OR_FORM    -> "Invoice or Form";
+            case GOVERNMENT_DOCUMENT -> "Government / Tax Document";
+            case UNKNOWN            -> "General Document";
         };
     }
 }

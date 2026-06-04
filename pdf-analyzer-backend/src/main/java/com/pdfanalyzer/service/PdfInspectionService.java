@@ -122,55 +122,38 @@ public class PdfInspectionService {
      * all signals to be present simultaneously).
      */
     private DocumentType preclassify(int pages, int sampleChars, String sampleText) {
-        // Structural signal: very short with sparse text → slide deck
-        if (pages <= 30 && sampleChars < 500) {
-            log.debug("Pre-classification: SLIDE_DECK (pages={}, sampleChars={})",
-                    pages, sampleChars);
-            return DocumentType.SLIDE_DECK;
-        }
+    // Slide decks: short + low text density
+    if (pages <= 30 && sampleChars < 500) {
+        return DocumentType.SLIDE_DECK;
+    }
 
-        if (sampleText == null || sampleText.isBlank()) {
-            return DocumentType.UNKNOWN;
-        }
-
+    if (sampleText != null) {
         String lower = sampleText.toLowerCase();
 
-        // ── Score-based research paper detection ──────────────────────────────
-        // These signals appear in the first 5 pages of virtually all academic PDFs.
-        // References/bibliography are intentionally excluded from this sample check
-        // since they appear at the end of the document.
+        // Research paper — requires BOTH abstract and references/conclusion
         boolean hasAbstract = lower.contains("abstract");
-        boolean hasIntro    = lower.contains("introduction");
-        boolean hasDoi      = lower.contains("doi:") || lower.contains("arxiv")
-                           || lower.contains("arxiv.org");
-        boolean hasEtAl     = lower.contains("et al.");
-        boolean hasFigure   = lower.contains("figure") || lower.contains("fig.");
-        boolean hasSection  = lower.contains("section");
-        boolean hasKeywords = lower.contains("keywords") || lower.contains("key words");
-
-        int researchScore = (hasAbstract ? 2 : 0)
-                          + (hasIntro    ? 1 : 0)
-                          + (hasDoi      ? 2 : 0)
-                          + (hasEtAl     ? 2 : 0)
-                          + (hasFigure   ? 1 : 0)
-                          + (hasSection  ? 1 : 0)
-                          + (hasKeywords ? 1 : 0);
-
-        if (researchScore >= 3) {
-            log.debug("Pre-classification: RESEARCH_PAPER (score={})", researchScore);
+        boolean hasReferences = lower.contains("references") || lower.contains("bibliography");
+        boolean hasConclusion = lower.contains("conclusion");
+        if (hasAbstract && (hasReferences || hasConclusion)) {
             return DocumentType.RESEARCH_PAPER;
         }
 
-        // ── Other document types ──────────────────────────────────────────────
+        // Invoice / Form — financial or tax keywords
         if (lower.contains("invoice") || lower.contains("bill to")
-                || lower.contains("total amount") || lower.contains("tax invoice")) {
+                || lower.contains("total amount") || lower.contains("form 1040")
+                || lower.contains("taxpayer") || lower.contains("irs")
+                || lower.contains("internal revenue") || lower.contains("tax return")) {
             return DocumentType.INVOICE_OR_FORM;
         }
+
+        // Legal
         if (lower.contains("terms and conditions") || lower.contains("whereas")
                 || lower.contains("hereinafter") || lower.contains("party agrees")) {
             return DocumentType.LEGAL_DOCUMENT;
         }
-
-        return DocumentType.UNKNOWN;
     }
+
+    // Default: UNKNOWN — let DocumentClassificationService decide after full text
+    return DocumentType.UNKNOWN;
+}
 }

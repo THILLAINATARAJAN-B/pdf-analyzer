@@ -37,9 +37,9 @@ import java.util.Map;
  * - Fail-fast on auth (401/403), not-found (404), and bad-request (400) errors
  * - Safety filter detection (promptFeedback.blockReason + finishReason=SAFETY)
  * - Foreign-language normalization rule in prompt
- * - documentType forced to match classification hint (fixes "General Document" bug)
+ * - documentType forced to match classification hint
  * - JsonSanitizer as secondary fallback for fence-wrapped responses
- * - Separate summarizeText() path for lightweight chunk summarization
+ * - summarizeChunk() + summarizeText() for chunk summarization pipeline (Level 2)
  */
 @Slf4j
 @Component
@@ -67,8 +67,8 @@ public class GeminiClient {
     }
 
     /**
-     * Returns true if the API key is configured and not a placeholder.
-     * Used by health-check endpoints or pre-flight validation.
+     * Returns true if the API key is configured and not an unresolved placeholder.
+     * Used by health checks or pre-flight validation.
      */
     public boolean isConfigured() {
         String key = geminiConfig.getApiKey();
@@ -79,8 +79,8 @@ public class GeminiClient {
 
     /**
      * Sends extracted PDF text to Gemini for structured analysis.
-     * Retries up to MAX_RETRIES times with exponential backoff for transient failures.
-     * Fails fast on authentication, authorization, and not-found errors.
+     * Retries up to MAX_RETRIES times with exponential backoff.
+     * Fails fast on authentication, authorization, and model-not-found errors.
      */
     public AnalysisResult analyze(String pdfText, String documentTypeHint) {
         String prompt = buildPrompt(pdfText, documentTypeHint);
@@ -100,7 +100,7 @@ public class GeminiClient {
             } catch (AiServiceException ex) {
                 lastException = ex;
 
-                // Fatal errors: auth failure, model not found, bad request
+                // Fatal errors that must not be retried
                 boolean isFatal = ex.getMessage().contains("authentication")
                         || ex.getMessage().contains("not found")
                         || ex.getMessage().contains("API key")
@@ -126,10 +126,41 @@ public class GeminiClient {
                 : new AiServiceException("AI analysis failed after all retry attempts.");
     }
 
+    // ── Level 2: Chunk Summarization ──────────────────────────────────────────
+
     /**
-     * Lightweight text-only call for chunk summarization.
-     * Used in the chunked summarization path for very large documents.
-     * Does not use structured output mode — returns plain text.
+     * Summarizes a single text chunk as plain prose.
+     * Used by ChunkSummarizationService for large document processing.
+     *
+     * Deliberately NOT using structured output mode here —
+     * chunk summaries are intermediate prose, not final JSON.
+     */
+    public String summarizeChunk(String chunkText, String documentTypeHint,
+                                  int chunkIndex, int totalChunks) {
+        log.info("Summarizing chunk {}/{}", chunkIndex, totalChunks);
+
+        String prompt = """
+                You are summarizing part %d of %d of a %s document.
+
+                Write a clear, factual prose summary of the content below.
+                Preserve key facts, names, numbers, and findings.
+                Output ONLY the summary text — no headings, no JSON, no preamble.
+                ALL output must be in English regardless of source language.
+
+                Content:
+                ---
+                %s
+                ---
+                """.formatted(chunkIndex, totalChunks, documentTypeHint, chunkText);
+
+        String requestBody = buildPlainTextRequestBody(prompt);
+        String rawResponse = callGeminiApi(requestBody);
+        return extractTextFromResponse(rawResponse);
+    }
+
+    /**
+     * Lightweight text-only call for general summarization tasks.
+     * Used when callers need a plain-text Gemini response without structured output.
      */
     public String summarizeText(String prompt) {
         String requestBody = buildPlainTextRequestBody(prompt);
@@ -175,7 +206,6 @@ public class GeminiClient {
                         "AI service authentication failed. Verify GEMINI_API_KEY environment variable.");
             }
             if (ex.getStatusCode() == HttpStatus.FORBIDDEN) {
-                // 403 can mean: wrong key, billing not enabled, or quota exceeded
                 throw new AiServiceException(
                         "AI service authentication failed (403). "
                                 + "Verify GEMINI_API_KEY is valid and billing is enabled.");
@@ -305,13 +335,13 @@ public class GeminiClient {
      * 4. keyTakeaway must be specific and substantive.
      */
     private String buildPrompt(String pdfText, String documentTypeHint) {
-        // Determine if the hint is meaningful (not "General Document" / "Unknown")
         boolean hasStrongHint = documentTypeHint != null
                 && !documentTypeHint.equalsIgnoreCase("General Document")
                 && !documentTypeHint.equalsIgnoreCase("Unknown Document");
 
         String documentTypeInstruction = hasStrongHint
-                ? "- The documentType MUST be \"" + documentTypeHint
+                ? "- The documentType MUST be \""
+                        + documentTypeHint
                         + "\" — do not override this with your own classification."
                 : "- Determine the documentType from the content. Use one of: "
                         + "Research Paper, Slide Deck / Presentation, Business Report, "
@@ -319,12 +349,12 @@ public class GeminiClient {
 
         return """
                 You are a professional document analyst specializing in structured data extraction.
-                
+
                 Document type hint: %s
-                
+
                 Analyze the document text below and return ONLY a valid JSON object.
                 No markdown. No code fences. No explanation. No preamble.
-                
+
                 Required JSON structure:
                 {
                   "documentType": "<document type>",
@@ -333,7 +363,7 @@ public class GeminiClient {
                   "summary": "<Sentence one. Sentence two. Sentence three. Minimum three sentences.>",
                   "keyTakeaway": "<The single most important insight from this document.>"
                 }
-                
+
                 Strict rules:
                 - Output ONLY the JSON object. Nothing before or after it.
                 - ALL output values MUST be in English, regardless of the document's source language.
@@ -343,7 +373,7 @@ public class GeminiClient {
                 - summary must contain at least 3 complete, substantive sentences.
                 - keyTakeaway must be specific to this document — not generic filler.
                 %s
-                
+
                 Document text:
                 ---
                 %s
@@ -354,9 +384,8 @@ public class GeminiClient {
     // ── Request Body Builders ─────────────────────────────────────────────────
 
     /**
-     * Builds a structured request body using Gemini's schema-based output.
-     * responseMimeType: "application/json" + responseSchema enforces structured output
-     * at the API level — this is the primary JSON defence.
+     * Structured request body using Gemini's schema-based output.
+     * responseMimeType + responseSchema enforces JSON at the API level.
      * JsonSanitizer in parseGeminiResponse() is the secondary fallback.
      */
     private String buildStructuredRequestBody(String prompt) {
@@ -375,8 +404,8 @@ public class GeminiClient {
     }
 
     /**
-     * Builds a plain-text request body for summarization tasks.
-     * Does not use structured output mode — returns free-form text.
+     * Plain-text request body for chunk summarization tasks.
+     * Lower token budget (512) since summaries are intermediate, not final.
      */
     private String buildPlainTextRequestBody(String prompt) {
         try {
@@ -407,7 +436,8 @@ public class GeminiClient {
 
     /**
      * Defines the Gemini responseSchema for structured output.
-     * All 5 fields are required strings — the API enforces this before returning.
+     * All 5 analysis fields are declared as required strings.
+     * The API enforces this contract before returning the response.
      */
     private Map<String, Object> buildAnalysisResultSchema() {
         Map<String, Object> schema = new LinkedHashMap<>();
@@ -432,6 +462,10 @@ public class GeminiClient {
 
     // ── Plain Text Response Extractor ─────────────────────────────────────────
 
+    /**
+     * Extracts plain text from a Gemini response.
+     * Used by summarizeChunk() and summarizeText() — not by analyze().
+     */
     private String extractTextFromResponse(String rawResponse) {
         try {
             JsonNode root = objectMapper.readTree(rawResponse);

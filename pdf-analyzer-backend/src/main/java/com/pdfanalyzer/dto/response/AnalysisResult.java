@@ -1,6 +1,7 @@
 package com.pdfanalyzer.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.pdfanalyzer.model.QualityReport;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -21,8 +22,11 @@ public class AnalysisResult {
     private String summary;
     private String keyTakeaway;
 
-    // Pipeline metadata — returned to client for transparency
+    // Pipeline metadata
     private String extractionStrategy;
     private Integer totalPages;
-    private String qualityScore;
+    private String qualityScore;          // Simple tier: HIGH / MEDIUM / LOW
+
+    // Level 2 — detailed quality report
+    private QualityReport qualityReport;  // NEW
 }
