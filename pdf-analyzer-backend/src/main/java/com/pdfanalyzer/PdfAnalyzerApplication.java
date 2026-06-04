@@ -4,10 +4,10 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class PdfAnalyzerBackendApplication {
+public class PdfAnalyzerApplication {
 
 	public static void main(String[] args) {
-		SpringApplication.run(PdfAnalyzerBackendApplication.class, args);
+		SpringApplication.run(PdfAnalyzerApplication.class, args);
 	}
 
 }
