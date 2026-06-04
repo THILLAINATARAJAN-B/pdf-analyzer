@@ -19,7 +19,7 @@ RUN rm /etc/nginx/conf.d/default.conf
 
 COPY nginx.conf /etc/nginx/templates/default.conf.template
 
-COPY --from=builder /app/dist/pdf-analyzer-frontend /usr/share/nginx/html
+COPY --from=builder /app/dist/pdf-analyzer-frontend/browser /usr/share/nginx/html
 
 EXPOSE 80
 
