@@ -22,11 +22,12 @@ management:
       show-details: when-authorized
 
 # AI Configuration
+# AI Configuration
 gemini:
   api:
     key: ${GEMINI_API_KEY}
     base-url: https://generativelanguage.googleapis.com/v1beta
-    model: gemini-1.5-flash
+    model: gemini-2.0-flash
     max-output-tokens: 1024
     temperature: 0.2
 
@@ -36,7 +37,8 @@ pdf:
     connect-timeout-ms: 10000
     read-timeout-ms: 30000
     max-size-bytes: 20971520   # 20 MB
-    max-text-chars: 15000
+    #max-text-chars: 15000
+    max-text-chars: 8000   # <-- Lower this from 15000 to 8000
 
 # CORS - update ALLOWED_ORIGINS env var in Railway
 cors:

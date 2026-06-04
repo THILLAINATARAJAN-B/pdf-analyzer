@@ -16,7 +16,7 @@ public class GeminiConfig {
     private String key;
 
     private String baseUrl = "https://generativelanguage.googleapis.com/v1beta";
-    private String model = "gemini-1.5-flash";
+    private String model = "gemini-2.0-flash";
     private int maxOutputTokens = 1024;
     private double temperature = 0.2;
 
