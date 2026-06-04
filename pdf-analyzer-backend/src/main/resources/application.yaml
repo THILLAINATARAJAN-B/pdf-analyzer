@@ -1,3 +1,51 @@
+server:
+  port: ${PORT:8080}
+  servlet:
+    context-path: /
+
 spring:
   application:
     name: pdf-analyzer-backend
+
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when-authorized
+
+# AI Configuration
+gemini:
+  api:
+    key: ${GEMINI_API_KEY}
+    base-url: https://generativelanguage.googleapis.com/v1beta
+    model: gemini-1.5-flash
+    max-output-tokens: 1024
+    temperature: 0.2
+
+# PDF Download Configuration
+pdf:
+  download:
+    connect-timeout-ms: 10000
+    read-timeout-ms: 30000
+    max-size-bytes: 20971520   # 20 MB
+    max-text-chars: 15000
+
+# CORS - update ALLOWED_ORIGINS env var in Railway
+cors:
+  allowed-origins: ${ALLOWED_ORIGINS:http://localhost:4200}
+
+# Logging
+logging:
+  level:
+    com.pdfanalyzer: INFO
+    org.springframework.web: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
