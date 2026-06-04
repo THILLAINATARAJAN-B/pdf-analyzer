@@ -19,8 +19,12 @@ import java.io.IOException;
  * Inspects a PDF's structural characteristics and recommends
  * the optimal extraction strategy (NATIVE, OCR, or HYBRID).
  *
- * This service is deliberately read-only — it does not
- * extract full text, only enough to detect text density.
+ * Deliberately read-only — samples up to 5 pages to detect text density.
+ * Full text extraction happens downstream in PdfExtractionOrchestrator.
+ *
+ * Uses score-based research paper detection to avoid the "references on
+ * page 14" problem — where the first-5-page sample misses the references
+ * section and falls back to UNKNOWN incorrectly.
  */
 @Slf4j
 @Service
@@ -35,7 +39,7 @@ public class PdfInspectionService {
     public PdfInspectionResult inspect(byte[] pdfBytes) {
         try (PDDocument document = Loader.loadPDF(pdfBytes)) {
 
-            // Password-protected PDF — explicit exception with clean message
+            // Catch password-protected PDFs with a clean, explicit exception
             if (document.isEncrypted()) {
                 throw new PdfPasswordException(
                         "This PDF is password-protected. Please provide an unlocked version.");
@@ -51,30 +55,33 @@ public class PdfInspectionService {
             }
 
             // Sample first 5 pages to detect text density
+            // setSortByPosition(true) is critical for multi-column layouts
             PDFTextStripper sampleStripper = new PDFTextStripper();
             sampleStripper.setSortByPosition(true);
             sampleStripper.setStartPage(1);
             sampleStripper.setEndPage(Math.min(5, totalPages));
             String sampleText = sampleStripper.getText(document);
-            int sampleChars = sampleText == null ? 0 : sampleText.trim().length();
+            int sampleChars = (sampleText == null) ? 0 : sampleText.trim().length();
 
             boolean hasEmbeddedText = sampleChars > 0;
             boolean isLowTextDensity = sampleChars < lowTextThreshold;
 
-            // Determine extraction strategy
+            // ── Extraction Strategy Decision ──────────────────────────────────
             ExtractionStrategy strategy;
             if (!hasEmbeddedText) {
                 strategy = ExtractionStrategy.OCR;
-                log.info("Inspection: no embedded text detected — routing to OCR");
+                log.info("Inspection: no embedded text — routing to OCR");
             } else if (isLowTextDensity) {
                 strategy = ExtractionStrategy.HYBRID;
-                log.info("Inspection: low text density ({} chars in sample) — routing to HYBRID", sampleChars);
+                log.info("Inspection: low text density ({} chars in sample) — routing to HYBRID",
+                        sampleChars);
             } else {
                 strategy = ExtractionStrategy.NATIVE;
-                log.info("Inspection: sufficient embedded text ({} chars) — routing to NATIVE", sampleChars);
+                log.info("Inspection: sufficient embedded text ({} chars) — routing to NATIVE",
+                        sampleChars);
             }
 
-            // Pre-classify document type from structural signals
+            // ── Pre-classification (score-based) ─────────────────────────────
             DocumentType docType = preclassify(totalPages, sampleChars, sampleText);
 
             return PdfInspectionResult.builder()
@@ -89,6 +96,7 @@ public class PdfInspectionService {
         } catch (PdfPasswordException | PdfProcessingException ex) {
             throw ex;
         } catch (InvalidPasswordException ex) {
+            // PDFBox throws this specific exception for wrong/missing password
             throw new PdfPasswordException(
                     "This PDF is password-protected. Please provide an unlocked version.");
         } catch (IOException ex) {
@@ -102,27 +110,67 @@ public class PdfInspectionService {
     }
 
     /**
-     * Pre-classifies document type from structural signals:
-     * - Slide decks tend to be short with low text density per page.
-     * - Research papers tend to have dense text.
-     * - All other cases default to UNKNOWN for the AI to determine.
+     * Score-based document type pre-classification from the 5-page sample.
+     *
+     * WHY score-based: A single-condition check like
+     *   lower.contains("abstract") && lower.contains("references")
+     * fails for academic PDFs where "references" only appears on page 14+,
+     * well outside the 5-page sample window.
+     *
+     * Solution: Award points for multiple independent academic signals.
+     * 3+ points → RESEARCH_PAPER (confident classification without needing
+     * all signals to be present simultaneously).
      */
     private DocumentType preclassify(int pages, int sampleChars, String sampleText) {
+        // Structural signal: very short with sparse text → slide deck
         if (pages <= 30 && sampleChars < 500) {
+            log.debug("Pre-classification: SLIDE_DECK (pages={}, sampleChars={})",
+                    pages, sampleChars);
             return DocumentType.SLIDE_DECK;
         }
-        if (sampleText != null) {
-            String lower = sampleText.toLowerCase();
-            if (lower.contains("abstract") && lower.contains("references")) {
-                return DocumentType.RESEARCH_PAPER;
-            }
-            if (lower.contains("invoice") || lower.contains("bill to") || lower.contains("total amount")) {
-                return DocumentType.INVOICE_OR_FORM;
-            }
-            if (lower.contains("terms and conditions") || lower.contains("whereas") || lower.contains("hereinafter")) {
-                return DocumentType.LEGAL_DOCUMENT;
-            }
+
+        if (sampleText == null || sampleText.isBlank()) {
+            return DocumentType.UNKNOWN;
         }
+
+        String lower = sampleText.toLowerCase();
+
+        // ── Score-based research paper detection ──────────────────────────────
+        // These signals appear in the first 5 pages of virtually all academic PDFs.
+        // References/bibliography are intentionally excluded from this sample check
+        // since they appear at the end of the document.
+        boolean hasAbstract = lower.contains("abstract");
+        boolean hasIntro    = lower.contains("introduction");
+        boolean hasDoi      = lower.contains("doi:") || lower.contains("arxiv")
+                           || lower.contains("arxiv.org");
+        boolean hasEtAl     = lower.contains("et al.");
+        boolean hasFigure   = lower.contains("figure") || lower.contains("fig.");
+        boolean hasSection  = lower.contains("section");
+        boolean hasKeywords = lower.contains("keywords") || lower.contains("key words");
+
+        int researchScore = (hasAbstract ? 2 : 0)
+                          + (hasIntro    ? 1 : 0)
+                          + (hasDoi      ? 2 : 0)
+                          + (hasEtAl     ? 2 : 0)
+                          + (hasFigure   ? 1 : 0)
+                          + (hasSection  ? 1 : 0)
+                          + (hasKeywords ? 1 : 0);
+
+        if (researchScore >= 3) {
+            log.debug("Pre-classification: RESEARCH_PAPER (score={})", researchScore);
+            return DocumentType.RESEARCH_PAPER;
+        }
+
+        // ── Other document types ──────────────────────────────────────────────
+        if (lower.contains("invoice") || lower.contains("bill to")
+                || lower.contains("total amount") || lower.contains("tax invoice")) {
+            return DocumentType.INVOICE_OR_FORM;
+        }
+        if (lower.contains("terms and conditions") || lower.contains("whereas")
+                || lower.contains("hereinafter") || lower.contains("party agrees")) {
+            return DocumentType.LEGAL_DOCUMENT;
+        }
+
         return DocumentType.UNKNOWN;
     }
 }

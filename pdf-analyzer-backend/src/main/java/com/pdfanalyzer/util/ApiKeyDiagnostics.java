@@ -3,30 +3,32 @@ package com.pdfanalyzer.util;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Logs API key load status for startup verification.
- * Never logs full secrets — only length and partial prefix/suffix.
+ * Utility for safe, structured API key status logging.
+ * Never logs the raw key — only its length and a short prefix.
  */
 @Slf4j
 public final class ApiKeyDiagnostics {
 
-    private ApiKeyDiagnostics() {
-    }
+    private ApiKeyDiagnostics() {}
 
-    public static void logKeyStatus(String keyName, String key) {
-        if (key == null || key.isBlank()) {
-            log.info("  {} : NOT SET (blank or missing from environment/.env)", keyName);
+    /**
+     * Logs a masked status line for the given key.
+     * Examples:
+     *   ✅  API Key  : AIzaSy... (39 chars)
+     *   ⚠   API Key  : MISSING — set GEMINI_API_KEY environment variable
+     *   ⚠   API Key  : Unresolved placeholder ${GEMINI_API_KEY}
+     */
+    public static void logKeyStatus(String envVarName, String keyValue) {
+        if (keyValue == null || keyValue.isBlank()) {
+            log.warn("  ⚠  API Key  : MISSING — set {} environment variable", envVarName);
             return;
         }
-
-        if (key.startsWith("${")) {
-            log.warn("  {} : UNRESOLVED PLACEHOLDER — value is \"{}\"", keyName, key);
+        if (keyValue.startsWith("${")) {
+            log.warn("  ⚠  API Key  : Unresolved placeholder {} — set environment variable",
+                    keyValue);
             return;
         }
-
-        String prefix = key.substring(0, Math.min(12, key.length()));
-        String suffix = key.length() > 4 ? key.substring(key.length() - 4) : key;
-
-        log.info("  {} : LOADED (length={}, startsWith=\"{}\", endsWith=\"{}\")",
-                keyName, key.length(), prefix, suffix);
+        String masked = keyValue.substring(0, Math.min(8, keyValue.length())) + "...";
+        log.info("  ✅  API Key  : {} ({} chars)", masked, keyValue.length());
     }
 }

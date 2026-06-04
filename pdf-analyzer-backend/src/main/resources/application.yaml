@@ -3,6 +3,7 @@ server:
   servlet:
     context-path: /
 
+
 spring:
   config:
     import: optional:dotenv:.env
@@ -13,6 +14,7 @@ spring:
     serialization:
       write-dates-as-timestamps: false
 
+
 management:
   endpoints:
     web:
@@ -22,12 +24,13 @@ management:
     health:
       show-details: when-authorized
 
+
 pdf:
   download:
-    connect-timeout-ms: 10000
-    read-timeout-ms: 30000
-    max-size-bytes: 20971520
-    max-redirects: 3
+    connect-timeout-ms: 15000
+    read-timeout-ms: 60000
+    max-size-bytes: 52428800
+    max-redirects: 5
   processing:
     max-pages: 200
     max-text-chars: 40000
@@ -37,13 +40,14 @@ pdf:
     tessdata-path: ${TESSERACT_DATA_PATH:}
     max-pages: 10
 
+
 ai:
-  # gemini | openai | auto (auto tries Gemini, falls back to OpenAI on auth errors)
   provider: ${AI_PROVIDER:auto}
   analysis:
     chunk-threshold-chars: 12000
     chunk-size-chars: 8000
     max-chunks: 8
+
 
 gemini:
   api:
@@ -53,6 +57,7 @@ gemini:
     max-output-tokens: 1024
     temperature: 0.2
 
+
 openai:
   api:
     key: ${GPT_API_KEY:}
@@ -61,8 +66,10 @@ openai:
     max-output-tokens: 1024
     temperature: 0.2
 
+
 cors:
   allowed-origins: ${ALLOWED_ORIGINS:http://localhost:4200}
+
 
 logging:
   level:

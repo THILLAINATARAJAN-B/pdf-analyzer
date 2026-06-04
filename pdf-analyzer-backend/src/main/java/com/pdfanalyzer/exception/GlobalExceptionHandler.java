@@ -52,16 +52,35 @@ public class GlobalExceptionHandler {
 
     // ── 502 Bad Gateway ──────────────────────────────────────────────────────
 
-    @ExceptionHandler(PdfDownloadException.class)
-    public ResponseEntity<Map<String, Object>> handlePdfDownload(PdfDownloadException ex) {
-        return buildResponse(HttpStatus.BAD_GATEWAY, ex.getMessage());
-    }
+// ── 502 Bad Gateway ──────────────────────────────────────────────────────
 
-    @ExceptionHandler(AiServiceException.class)
-    public ResponseEntity<Map<String, Object>> handleAiService(AiServiceException ex) {
-        log.error("AI service failure: {}", ex.getMessage());
-        return buildResponse(HttpStatus.BAD_GATEWAY, ex.getMessage());
-    }
+
+@ExceptionHandler(PdfDownloadException.class)
+public ResponseEntity<Map<String, Object>> handlePdfDownload(PdfDownloadException ex) {
+    return buildResponse(HttpStatus.BAD_GATEWAY, ex.getMessage());
+}
+
+// ── ADD THIS NEW HANDLER ─────────────────────────────────────────────────
+
+@ExceptionHandler(org.springframework.web.client.ResourceAccessException.class)
+public ResponseEntity<Map<String, Object>> handleNetworkTimeout(
+        org.springframework.web.client.ResourceAccessException ex) {
+    log.warn("Network/timeout error contacting external service: {}", ex.getMessage());
+    boolean isTimeout = ex.getCause() instanceof java.net.SocketTimeoutException;
+    String message = isTimeout
+            ? "The PDF server did not respond in time. Please try again or use a faster source URL."
+            : "Could not reach the PDF server. Check that the URL is accessible.";
+    return buildResponse(HttpStatus.GATEWAY_TIMEOUT, message);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+
+@ExceptionHandler(AiServiceException.class)
+public ResponseEntity<Map<String, Object>> handleAiService(AiServiceException ex) {
+    log.error("AI service failure: {}", ex.getMessage());
+    return buildResponse(HttpStatus.BAD_GATEWAY, ex.getMessage());
+}
+
 
     // ── 500 Internal Server Error ────────────────────────────────────────────
 

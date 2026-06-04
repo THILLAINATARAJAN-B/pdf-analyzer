@@ -39,50 +39,38 @@ public class UrlValidator {
     );
 
     public void validate(String url) {
-        if (url == null || url.isBlank()) {
-            throw new InvalidUrlException("PDF URL must not be blank.");
-        }
-
-        if (url.length() > 2048) {
-            throw new InvalidUrlException("URL exceeds maximum allowed length of 2048 characters.");
-        }
-
-        URI uri;
-        try {
-            uri = new URI(url.trim());
-        } catch (URISyntaxException ex) {
-            throw new InvalidUrlException("The provided URL is malformed or contains invalid characters.");
-        }
-
-        validateScheme(uri);
-        validateHost(uri);
-        validateResolvedIp(uri.getHost());
+    if (url == null || url.isBlank()) {
+        throw new InvalidUrlException("PDF URL must not be blank.");
     }
 
-    /**
-     * Re-validates DNS immediately before fetch to narrow the DNS rebinding window.
-     * Called at connection time and again for each redirect target.
-     */
-    public void revalidateBeforeFetch(String url) {
-        if (url == null || url.isBlank()) {
-            return;
-        }
-        try {
-            URI uri = new URI(url.trim());
-            String host = uri.getHost();
-            if (host != null && !host.isBlank()) {
-                validateResolvedIp(host);
-            }
-        } catch (URISyntaxException ex) {
-            throw new InvalidUrlException("The provided URL is malformed or contains invalid characters.");
-        }
+    // Check length BEFORE URI.create() — which throws IllegalArgumentException for extreme lengths
+    if (url.length() > 2048) {
+        throw new InvalidUrlException("URL exceeds maximum allowed length of 2048 characters.");
     }
+
+    URI uri;
+    try {
+        uri = new URI(url.trim());
+    } catch (URISyntaxException | IllegalArgumentException ex) {  // ← ADD IllegalArgumentException
+        throw new InvalidUrlException("The provided URL is malformed or contains invalid characters.");
+    }
+
+    validateScheme(uri);
+    validateHost(uri);
+    validateResolvedIp(uri.getHost());
+}
+
+
 
     private void validateScheme(URI uri) {
         String scheme = uri.getScheme();
-        if (scheme == null || !ALLOWED_SCHEMES.contains(scheme.toLowerCase())) {
+        if (scheme == null) {
             throw new InvalidUrlException(
-                    "URL must use HTTP or HTTPS. Provided scheme: " + scheme);
+                "The provided URL has no scheme. URLs must start with http:// or https://");
+        }
+        if (!ALLOWED_SCHEMES.contains(scheme.toLowerCase())) {
+            throw new InvalidUrlException(
+                "URL must use HTTP or HTTPS. Provided scheme: '" + scheme + "' is not allowed.");
         }
     }
 
