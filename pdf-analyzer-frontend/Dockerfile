@@ -8,7 +8,7 @@ COPY . .
 # API_BASE_URL is injected at Railway build time
 ARG API_BASE_URL=http://localhost:8080/api/v1
 RUN sed -i "s|%%API_BASE_URL%%|${API_BASE_URL}|g" src/environments/environment.prod.ts
-RUN npm run build -- --configuration production
+RUN npm run build
 
 # Stage 2 — Serve with nginx
 FROM nginx:1.27-alpine AS runtime
