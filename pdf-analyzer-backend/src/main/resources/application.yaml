@@ -4,9 +4,10 @@ server:
     context-path: /
 
 spring:
+  config:
+    import: optional:dotenv:.env
   application:
     name: pdf-analyzer-backend
-
   jackson:
     default-property-inclusion: non_null
     serialization:
@@ -21,30 +22,24 @@ management:
     health:
       show-details: when-authorized
 
-# AI Configuration
-# AI Configuration
 gemini:
   api:
     key: ${GEMINI_API_KEY}
     base-url: https://generativelanguage.googleapis.com/v1beta
-    model: gemini-2.0-flash
+    model: gemini-2.5-flash
     max-output-tokens: 1024
     temperature: 0.2
 
-# PDF Download Configuration
 pdf:
   download:
     connect-timeout-ms: 10000
     read-timeout-ms: 30000
-    max-size-bytes: 20971520   # 20 MB
-    #max-text-chars: 15000
-    max-text-chars: 8000   # <-- Lower this from 15000 to 8000
+    max-size-bytes: 20971520
+    max-text-chars: 4000
 
-# CORS - update ALLOWED_ORIGINS env var in Railway
 cors:
   allowed-origins: ${ALLOWED_ORIGINS:http://localhost:4200}
 
-# Logging
 logging:
   level:
     com.pdfanalyzer: INFO

@@ -9,14 +9,16 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(AnalyzeController.class)
 class AnalyzeControllerTest {
@@ -27,7 +29,7 @@ class AnalyzeControllerTest {
     @Autowired
     private ObjectMapper objectMapper;
 
-    @MockBean
+    @MockitoBean
     private AnalyzeService analyzeService;
 
     @Test
@@ -43,11 +45,9 @@ class AnalyzeControllerTest {
 
         when(analyzeService.analyze(any())).thenReturn(mockResult);
 
-        AnalyzeRequest request = new AnalyzeRequest("https://arxiv.org/pdf/1706.03762");
-
         mockMvc.perform(post("/api/v1/analyze")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
+                        .content(objectMapper.writeValueAsString(new AnalyzeRequest("https://arxiv.org/pdf/1706.03762"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.title").value("Attention Is All You Need"))
@@ -57,11 +57,9 @@ class AnalyzeControllerTest {
     @Test
     @DisplayName("POST /api/v1/analyze - returns 400 for blank URL")
     void testAnalyzeBlankUrl() throws Exception {
-        AnalyzeRequest request = new AnalyzeRequest("");
-
         mockMvc.perform(post("/api/v1/analyze")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
+                        .content(objectMapper.writeValueAsString(new AnalyzeRequest(""))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false));
     }
@@ -69,8 +67,7 @@ class AnalyzeControllerTest {
     @Test
     @DisplayName("GET /api/v1/health - returns health check")
     void testHealth() throws Exception {
-        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
-                        .get("/api/v1/health"))
+        mockMvc.perform(get("/api/v1/health"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true));
     }
