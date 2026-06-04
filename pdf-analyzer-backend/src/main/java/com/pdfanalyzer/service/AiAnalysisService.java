@@ -47,7 +47,7 @@ public class AiAnalysisService {
             try {
                 return analyzeWithGemini(text, hint);
             } catch (AiServiceException ex) {
-                if (openAiClient.isConfigured() && isAuthOrConfigFailure(ex)) {
+                if (openAiClient.isConfigured()) {
                     log.warn("Gemini failed ({}). Falling back to OpenAI.", ex.getMessage());
                     return analyzeWithOpenAi(text, hint);
                 }
@@ -64,14 +64,6 @@ public class AiAnalysisService {
                 "No AI provider configured. Set GEMINI_API_KEY or GPT_API_KEY.");
     }
 
-    private boolean isAuthOrConfigFailure(AiServiceException ex) {
-        String msg = ex.getMessage() == null ? "" : ex.getMessage().toLowerCase();
-        return msg.contains("authentication")
-                || msg.contains("api key")
-                || msg.contains("forbidden")
-                || msg.contains("401")
-                || msg.contains("403");
-    }
 
     private AnalysisResult analyzeWithGemini(String text, String hint) {
         log.info("Sending to Gemini. Document type hint: {}", hint);
