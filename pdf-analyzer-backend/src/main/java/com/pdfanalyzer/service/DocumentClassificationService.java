@@ -71,6 +71,13 @@ public class DocumentClassificationService {
                 || lower.contains("bill to") || lower.contains("purchase order")) {
             return formatType(DocumentType.INVOICE_OR_FORM);
         }
+        // In DocumentClassificationService.java — add these signals
+        if (lower.contains("introduction") && lower.contains("methodology")) {
+            return formatType(DocumentType.RESEARCH_PAPER);
+        }
+        if (lower.contains("figure") && lower.contains("table") && lower.contains("section")) {
+            return formatType(DocumentType.RESEARCH_PAPER);
+        }
 
         return formatType(DocumentType.UNKNOWN);
     }
