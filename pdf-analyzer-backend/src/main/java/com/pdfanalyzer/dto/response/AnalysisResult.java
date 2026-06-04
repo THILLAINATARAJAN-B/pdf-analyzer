@@ -1,29 +1,28 @@
 package com.pdfanalyzer.dto.response;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
-@Data
+@Getter
+@Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class AnalysisResult {
 
-    @JsonProperty("documentType")
     private String documentType;
-
-    @JsonProperty("title")
     private String title;
-
-    @JsonProperty("authors")
     private String authors;
-
-    @JsonProperty("summary")
     private String summary;
-
-    @JsonProperty("keyTakeaway")
     private String keyTakeaway;
+
+    // Pipeline metadata — returned to client for transparency
+    private String extractionStrategy;
+    private Integer totalPages;
+    private String qualityScore;
 }

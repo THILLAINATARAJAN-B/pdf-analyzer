@@ -1,17 +1,18 @@
 .page {
-  max-width: var(--content-max);
+  max-width: 1380px;
   margin: 0 auto;
-  padding: 56px 24px 80px;
+  padding: 40px 24px 48px;
+}
 
-  @media (max-width: 640px) {
+@media (max-width: 640px) {
+  .page {
     padding: 36px 16px 60px;
   }
 }
 
-// ── Hero ──────────────────────────────────────────────────────────
 .hero {
   text-align: center;
-  margin-bottom: 48px;
+  margin-bottom: 32px;
 }
 
 .hero-chip {
@@ -59,22 +60,34 @@
   line-height: 1.7;
 }
 
-// ── Input card ────────────────────────────────────────────────────
+.workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.workspace-left,
+.workspace-right {
+  min-width: 0;
+}
+
 .card {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-2xl);
   padding: 28px;
   box-shadow: var(--shadow-md);
+}
 
-  @media (max-width: 500px) {
+@media (max-width: 500px) {
+  .card {
     padding: 20px 16px;
     border-radius: var(--radius-xl);
   }
 }
 
 .input-card {
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 .field-wrap {
@@ -116,7 +129,9 @@
   color: var(--color-text);
   transition: border-color var(--transition), box-shadow var(--transition);
 
-  &::placeholder { color: var(--color-text-faint); }
+  &::placeholder {
+    color: var(--color-text-faint);
+  }
 
   &:hover:not(:disabled) {
     border-color: #c0c5d8;
@@ -125,12 +140,15 @@
   &:focus {
     outline: none;
     border-color: var(--color-primary);
-    box-shadow: 0 0 0 3px rgba(99,102,241,0.12);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
   }
 
   &.has-error {
     border-color: var(--color-error);
-    &:focus { box-shadow: 0 0 0 3px rgba(220,38,38,0.1); }
+
+    &:focus {
+      box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1);
+    }
   }
 
   &:disabled {
@@ -160,15 +178,16 @@
   font-weight: 500;
 }
 
-// ── Action row ────────────────────────────────────────────────────
 .actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+}
 
-  @media (max-width: 480px) {
+@media (max-width: 480px) {
+  .actions {
     flex-direction: column;
     align-items: stretch;
   }
@@ -178,13 +197,14 @@
   display: flex;
   gap: 10px;
   align-items: center;
+}
 
-  @media (max-width: 480px) {
+@media (max-width: 480px) {
+  .actions-right {
     flex-direction: column;
   }
 }
 
-// ── Buttons ───────────────────────────────────────────────────────
 .btn {
   display: inline-flex;
   align-items: center;
@@ -198,9 +218,14 @@
   transition: all var(--transition);
   white-space: nowrap;
 
-  &:disabled { opacity: 0.5; cursor: not-allowed; }
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
 
-  @media (max-width: 480px) {
+@media (max-width: 480px) {
+  .btn {
     width: 100%;
     justify-content: center;
     height: 44px;
@@ -216,10 +241,13 @@
 
   &:hover:not(:disabled) {
     background: var(--color-primary-dark);
-    box-shadow: 0 6px 20px rgba(99,102,241,0.42);
+    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.42);
     transform: translateY(-1px);
   }
-  &:active:not(:disabled) { transform: translateY(0); }
+
+  &:active:not(:disabled) {
+    transform: translateY(0);
+  }
 }
 
 .btn-secondary {
@@ -248,15 +276,18 @@
 .btn-spinner {
   width: 15px;
   height: 15px;
-  border: 2px solid rgba(255,255,255,0.35);
+  border: 2px solid rgba(255, 255, 255, 0.35);
   border-top-color: #fff;
   border-radius: 50%;
   animation: spin 0.65s linear infinite;
 }
 
-@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
-// ── Pipeline ──────────────────────────────────────────────────────
 .pipeline {
   display: flex;
   align-items: center;
@@ -293,19 +324,28 @@
   color: var(--color-text-faint);
   font-size: 14px;
   margin-top: -18px;
-
-  @media (max-width: 440px) { display: none; }
 }
 
-// ── Results area ──────────────────────────────────────────────────
+@media (max-width: 440px) {
+  .pipe-arrow {
+    display: none;
+  }
+}
+
 .result-area {
-  margin-top: 40px;
   animation: rise 0.35s ease-out both;
 }
 
 @keyframes rise {
-  from { opacity: 0; transform: translateY(14px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .result-header {
@@ -330,4 +370,100 @@
 .result-sub {
   font-size: 13px;
   color: var(--color-text-faint);
+}
+
+.result-placeholder {
+  display: flex;
+}
+
+.placeholder-card {
+  width: 100%;
+  min-height: 320px;
+  background: var(--color-surface);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 32px 24px;
+}
+
+.placeholder-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-primary-bg);
+  color: var(--color-primary);
+  margin-bottom: 18px;
+}
+
+.placeholder-title {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 10px;
+  letter-spacing: -0.02em;
+}
+
+.placeholder-text {
+  max-width: 36ch;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--color-text-muted);
+}
+
+@media (min-width: 1024px) {
+  .page {
+    padding: 32px 24px 32px;
+  }
+
+  .hero {
+    margin-bottom: 24px;
+  }
+
+  .workspace {
+    display: grid;
+    grid-template-columns: minmax(360px, 430px) minmax(0, 1fr);
+    gap: 24px;
+    align-items: start;
+  }
+
+  .workspace-left {
+    position: sticky;
+    top: 88px;
+    align-self: start;
+  }
+
+  .workspace-right {
+    height: calc(100dvh - 120px);
+    min-height: 540px;
+    overflow: hidden;
+  }
+
+  .workspace-right .result-area {
+    height: 100%;
+    overflow-y: auto;
+    padding-right: 8px;
+  }
+
+  .workspace-right .result-placeholder {
+    height: 100%;
+  }
+
+  .workspace-right .placeholder-card {
+    min-height: 100%;
+  }
+}
+
+@media (max-width: 1023px) {
+  .result-area {
+    margin-top: 8px;
+  }
 }

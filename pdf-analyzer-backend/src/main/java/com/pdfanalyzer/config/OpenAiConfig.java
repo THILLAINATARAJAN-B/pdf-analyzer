@@ -6,20 +6,20 @@ import org.springframework.context.annotation.Configuration;
 
 @Getter
 @Configuration
-public class GeminiConfig {
+public class OpenAiConfig {
 
-    @Value("${gemini.api.key}")
+    @Value("${openai.api.key:}")
     private String apiKey;
 
-    @Value("${gemini.api.base-url}")
+    @Value("${openai.api.base-url:https://api.openai.com/v1}")
     private String baseUrl;
 
-    @Value("${gemini.api.model}")
+    @Value("${openai.api.model:gpt-4o-mini}")
     private String model;
 
-    @Value("${gemini.api.max-output-tokens:1024}")
+    @Value("${openai.api.max-output-tokens:1024}")
     private int maxOutputTokens;
 
-    @Value("${gemini.api.temperature:0.2}")
+    @Value("${openai.api.temperature:0.2}")
     private double temperature;
 }

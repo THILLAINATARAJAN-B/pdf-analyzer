@@ -2,12 +2,12 @@ package com.pdfanalyzer.util;
 
 import com.pdfanalyzer.exception.PdfProcessingException;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 
 @Slf4j
@@ -18,7 +18,7 @@ public class PdfTextExtractor {
     private int maxTextChars;
 
     public String extract(byte[] pdfBytes) {
-        try (PDDocument document = PDDocument.load(new ByteArrayInputStream(pdfBytes))) {
+        try (PDDocument document = Loader.loadPDF(pdfBytes)) {
 
             if (document.isEncrypted()) {
                 throw new PdfProcessingException(

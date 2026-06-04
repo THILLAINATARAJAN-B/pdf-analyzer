@@ -9,8 +9,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -29,7 +29,7 @@ class AnalyzeControllerTest {
     @Autowired
     private ObjectMapper objectMapper;
 
-    @MockitoBean
+    @MockBean
     private AnalyzeService analyzeService;
 
     @Test
@@ -45,9 +45,12 @@ class AnalyzeControllerTest {
 
         when(analyzeService.analyze(any())).thenReturn(mockResult);
 
+        AnalyzeRequest request = new AnalyzeRequest();
+        request.setPdfUrl("https://arxiv.org/pdf/1706.03762");
+
         mockMvc.perform(post("/api/v1/analyze")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new AnalyzeRequest("https://arxiv.org/pdf/1706.03762"))))
+                        .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.title").value("Attention Is All You Need"))
@@ -57,11 +60,14 @@ class AnalyzeControllerTest {
     @Test
     @DisplayName("POST /api/v1/analyze - returns 400 for blank URL")
     void testAnalyzeBlankUrl() throws Exception {
+        AnalyzeRequest request = new AnalyzeRequest();
+        request.setPdfUrl("");
+
         mockMvc.perform(post("/api/v1/analyze")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new AnalyzeRequest(""))))
+                        .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.success").value(false));
+                .andExpect(jsonPath("$.message").value("pdfUrl: PDF URL must not be blank."));
     }
 
     @Test

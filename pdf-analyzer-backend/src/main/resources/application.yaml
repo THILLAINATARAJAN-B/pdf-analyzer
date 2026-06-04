@@ -22,20 +22,44 @@ management:
     health:
       show-details: when-authorized
 
-gemini:
-  api:
-    key: ${GEMINI_API_KEY}
-    base-url: https://generativelanguage.googleapis.com/v1beta
-    model: gemini-2.5-flash
-    max-output-tokens: 1024
-    temperature: 0.2
-
 pdf:
   download:
     connect-timeout-ms: 10000
     read-timeout-ms: 30000
     max-size-bytes: 20971520
-    max-text-chars: 4000
+    max-redirects: 3
+  processing:
+    max-pages: 200
+    max-text-chars: 40000
+    low-text-threshold: 100
+    ocr-enabled: true
+  ocr:
+    tessdata-path: ${TESSERACT_DATA_PATH:}
+    max-pages: 10
+
+ai:
+  # gemini | openai | auto (auto tries Gemini, falls back to OpenAI on auth errors)
+  provider: ${AI_PROVIDER:auto}
+  analysis:
+    chunk-threshold-chars: 12000
+    chunk-size-chars: 8000
+    max-chunks: 8
+
+gemini:
+  api:
+    key: ${GEMINI_API_KEY:}
+    base-url: https://generativelanguage.googleapis.com/v1beta
+    model: gemini-2.5-flash
+    max-output-tokens: 1024
+    temperature: 0.2
+
+openai:
+  api:
+    key: ${GPT_API_KEY:}
+    base-url: https://api.openai.com/v1
+    model: gpt-4o-mini
+    max-output-tokens: 1024
+    temperature: 0.2
 
 cors:
   allowed-origins: ${ALLOWED_ORIGINS:http://localhost:4200}
