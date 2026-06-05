@@ -31,12 +31,10 @@ public class GlobalExceptionHandler {
     }
 
     // ── 405 Method Not Allowed ────────────────────────────────────────────────
-    // ✅ Fix: explicit handler so GET /api/analyze returns 405, not 500 ERROR log
 
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
     public ResponseEntity<Map<String, Object>> handleMethodNotSupported(
             HttpRequestMethodNotSupportedException ex) {
-        // Client mistake — log at WARN, not ERROR
         log.warn("Method not allowed: {} — supported methods: {}",
                 ex.getMethod(), ex.getSupportedHttpMethods());
         return buildResponse(HttpStatus.METHOD_NOT_ALLOWED,
@@ -48,11 +46,13 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(InvalidUrlException.class)
     public ResponseEntity<Map<String, Object>> handleInvalidUrl(InvalidUrlException ex) {
+        log.warn("Invalid URL rejected: {}", ex.getMessage()); // ✅ Fix #1 — was silent
         return buildResponse(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage());
     }
 
     @ExceptionHandler(PdfPasswordException.class)
     public ResponseEntity<Map<String, Object>> handlePdfPassword(PdfPasswordException ex) {
+        log.warn("Rejected password-protected PDF: {}", ex.getMessage()); // ✅ Fix #2 — was silent
         return buildResponse(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage());
     }
 
@@ -64,6 +64,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(AiSafetyException.class)
     public ResponseEntity<Map<String, Object>> handleAiSafety(AiSafetyException ex) {
+        log.warn("AI safety filter triggered: {}", ex.getMessage()); // ✅ Fix #3 — was silent
         return buildResponse(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage());
     }
 
@@ -71,6 +72,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(PdfDownloadException.class)
     public ResponseEntity<Map<String, Object>> handlePdfDownload(PdfDownloadException ex) {
+        log.warn("PDF download failed: {}", ex.getMessage()); // ✅ Fix #4 — was silent
         return buildResponse(HttpStatus.BAD_GATEWAY, ex.getMessage());
     }
 
@@ -106,15 +108,11 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGeneric(Exception ex) {
-        // Only true unexpected exceptions reach here
         log.error("Unhandled exception [{}]: {}",
                 ex.getClass().getSimpleName(), ex.getMessage(), ex);
         return buildResponse(HttpStatus.INTERNAL_SERVER_ERROR,
                 "An unexpected error occurred. Please try again.");
     }
-    
-
-    
 
     // ── Builder ────────────────────────────────────────────────────────────────
 

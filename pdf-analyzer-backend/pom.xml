@@ -22,6 +22,7 @@
     </properties>
 
     <dependencies>
+
         <!-- Spring Boot Web -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -42,10 +43,18 @@
         </dependency>
 
         <!-- Tess4J for OCR fallback (Tesseract wrapper) -->
+        <!-- commons-logging excluded: tess4j pulls it transitively,
+             conflicting with Spring Boot's spring-jcl bridge -->
         <dependency>
             <groupId>net.sourceforge.tess4j</groupId>
             <artifactId>tess4j</artifactId>
             <version>5.11.0</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>commons-logging</groupId>
+                    <artifactId>commons-logging</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <!-- Jackson for JSON -->
@@ -75,10 +84,12 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- Actuator -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
+
     </dependencies>
 
     <build>
@@ -88,7 +99,7 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <configuration>
                     <compilerArgs>
-                    <arg>-proc:full</arg>
+                        <arg>-proc:full</arg>
                     </compilerArgs>
                 </configuration>
             </plugin>
@@ -106,4 +117,5 @@
             </plugin>
         </plugins>
     </build>
+
 </project>

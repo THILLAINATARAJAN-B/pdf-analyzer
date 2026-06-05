@@ -100,5 +100,7 @@ logging:
   level:
     com.pdfanalyzer: INFO
     org.springframework.web: WARN
+    org.apache.fontbox.cff: ERROR          # ← suppresses Type1CharString WARNs
+    org.apache.pdfbox.pdmodel.font: ERROR  # ← suppresses any font-loading WARNs too
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"

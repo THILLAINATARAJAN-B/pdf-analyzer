@@ -37,7 +37,7 @@ public class PdfExtractionOrchestrator {
 
     public String extract(byte[] pdfBytes, PdfInspectionResult inspection) {
         ExtractionStrategy strategy = inspection.getRecommendedStrategy();
-        log.info("Extraction strategy: {}", strategy);
+        log.debug("Extraction strategy: {}", strategy); // ✅ Fix #3 — INFO→DEBUG, Stage 4 banner already logs this
 
         return switch (strategy) {
             case NATIVE -> extractNative(pdfBytes);
