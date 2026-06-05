@@ -90,6 +90,8 @@ public class PromptBuilder {
                 - keyTakeaway must be specific to this document — not generic filler.
                 - title: extract ONLY the exact title as printed. Do not paraphrase or infer.
                 - NEVER use your training knowledge to fill in fields the extracted text does not support.
+                - title: If the only text resembling a title is a reference number, serial code, or label
+                (e.g. "No.", "Ref:", "Doc-123", "File No."), return "Not Found" instead.
 
                 Document text:
                 ---
