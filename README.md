@@ -7,9 +7,9 @@
 Built with Spring Boot · Angular · Apache PDFBox · Tess4J · Google Gemini · OpenAI GPT
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Java](https://img.shields.io/badge/Java-17-orange.svg)](https://openjdk.org/projects/jdk/17/)
-[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.x-brightgreen.svg)](https://spring.io/projects/spring-boot)
-[![Angular](https://img.shields.io/badge/Angular-17-red.svg)](https://angular.io/)
+[![Java](https://img.shields.io/badge/Java-21-orange.svg)](https://openjdk.org/projects/jdk/21/)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2.5-brightgreen.svg)](https://spring.io/projects/spring-boot)
+[![Angular](https://img.shields.io/badge/Angular-17.3.12-red.svg)](https://angular.io/)
 
 ### [**Try it live →**](https://pdf-analyzer-frontend-production.up.railway.app)
 
@@ -225,19 +225,40 @@ Both providers use structured JSON output mode and the same prompt contract, ens
 
 ## Tech Stack
 
-| Layer | Technology | Version |
-|---|---|---|
-| Frontend | Angular | 17 |
-| Backend | Spring Boot | 3.x |
-| Language | Java | 17 |
-| PDF Parsing | Apache PDFBox | 3.x |
-| OCR Engine | Tess4J / Tesseract | 5.x |
-| AI — Primary | Google Gemini | 2.5 Flash |
-| AI — Fallback | OpenAI GPT | 4o Mini |
-| JSON | Jackson | Bundled with Spring |
-| Build | Maven | 3.x |
-| Container | Docker | — |
-| Hosting | Railway | — |
+### Backend
+
+| Tool | Version |
+|---|---|
+| Java (Eclipse Temurin) | OpenJDK 21.0.11 |
+| Spring Boot | 3.2.5 |
+| Apache PDFBox | 3.0.2 |
+| Tess4J (Tesseract LSTM) | 5.11.0 |
+| Lombok | 4.0.0 |
+| Maven (system) | 3.9.14 |
+| Maven Wrapper | 3.9.16 |
+| AI — Primary | Google Gemini 2.5 Flash |
+| AI — Fallback | OpenAI GPT-4o-mini |
+
+### Frontend
+
+| Tool | Version |
+|---|---|
+| Angular | 17.3.12 |
+| Angular CLI | 17.3.17 |
+| Angular Material | 17.3.10 |
+| Node.js | 20.20.0 |
+| npm | 10.8.2 |
+| TypeScript | 5.4.5 |
+| RxJS | 7.8.2 |
+
+### DevOps
+
+| Tool | Version |
+|---|---|
+| Docker | 29.1.3 |
+| Docker Compose | 2.40.3 |
+| Git | 2.54.0 |
+| Hosting | Railway |
 
 ---
 
@@ -245,8 +266,8 @@ Both providers use structured JSON output mode and the same prompt contract, ens
 
 ### Prerequisites
 
-- Java 17+
-- Node.js 18+ and npm
+- Java 21+
+- Node.js 20+ and npm
 - Angular CLI (`npm install -g @angular/cli`)
 - Maven 3.9+
 - Tesseract OCR *(required only if `ocr-enabled: true`)*
@@ -316,7 +337,7 @@ docker run -p 8080:8080 \
   pdf-analyzer-backend
 ```
 
-The Dockerfile installs Tesseract OCR automatically. Both API keys are injected at runtime and are never baked into the image.
+The Dockerfile uses `eclipse-temurin:21-jre-alpine` as the runtime base and installs Tesseract OCR automatically. Both API keys are injected at runtime and are never baked into the image.
 
 ---
 
