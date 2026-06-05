@@ -6,26 +6,23 @@ RUN chmod +x ./mvnw && ./mvnw dependency:go-offline -B
 COPY src ./src
 RUN ./mvnw package -DskipTests -B
 
+
 FROM eclipse-temurin:17-jre-alpine AS runtime
 
-# Install Tesseract OCR on Alpine
 RUN apk add --no-cache \
     tesseract-ocr \
     tesseract-ocr-data-eng \
+    tesseract-ocr-data-osd \
     && tesseract --version \
     && ls /usr/share/tessdata/eng.traineddata
 
 WORKDIR /app
 COPY --from=build /app/target/*.jar app.jar
 
-# Alpine tessdata path
 ENV TESSERACT_DATA_PATH=/usr/share/tessdata
 
 EXPOSE 8080
 
 ENTRYPOINT ["java", \
-  "-XX:+UseContainerSupport", \
-  "-XX:MaxRAMPercentage=75.0", \
-  "-Djava.awt.headless=true", \
   "-Djava.security.egd=file:/dev/./urandom", \
   "-jar", "app.jar"]

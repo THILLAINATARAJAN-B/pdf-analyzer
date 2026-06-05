@@ -4,6 +4,7 @@ import com.pdfanalyzer.exception.PdfProcessingException;
 import com.pdfanalyzer.util.TessdataPathResolver;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
+import net.sourceforge.tess4j.ITessAPI;
 import net.sourceforge.tess4j.Tesseract;
 import net.sourceforge.tess4j.TesseractException;
 import org.apache.pdfbox.Loader;
@@ -77,8 +78,9 @@ public class OcrExtractionService {
             List<String> pageTexts = new ArrayList<>();
 
             for (int page = 0; page < pagesToProcess; page++) {
+                BufferedImage image = null;
                 try {
-                    BufferedImage image = renderer.renderImageWithDPI(page, RENDER_DPI, ImageType.GRAY);
+                    image = renderer.renderImageWithDPI(page, RENDER_DPI, ImageType.GRAY);
                     String pageText = tesseract.doOCR(image);
                     if (pageText != null && !pageText.isBlank()) {
                         pageTexts.add(pageText.trim());
@@ -91,6 +93,8 @@ public class OcrExtractionService {
                     throw new PdfProcessingException(
                             "OCR engine failed while processing this scanned PDF. "
                                     + "Ensure Tesseract is correctly installed with eng.traineddata.");
+                } finally {
+                    if (image != null) image.flush(); // release BufferedImage native memory
                 }
             }
 
@@ -131,8 +135,8 @@ public class OcrExtractionService {
         Tesseract tesseract = new Tesseract();
         tesseract.setDatapath(tessdataPath);
         tesseract.setLanguage("eng");
-        tesseract.setPageSegMode(1);
-        tesseract.setOcrEngineMode(1);
+        tesseract.setPageSegMode(ITessAPI.TessPageSegMode.PSM_AUTO);
+        tesseract.setOcrEngineMode(ITessAPI.TessOcrEngineMode.OEM_LSTM_ONLY);
         return tesseract;
     }
 }
