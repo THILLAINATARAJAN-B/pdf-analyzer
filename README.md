@@ -11,6 +11,8 @@ Built with Spring Boot · Angular · Apache PDFBox · Tess4J · Google Gemini ·
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.x-brightgreen.svg)](https://spring.io/projects/spring-boot)
 [![Angular](https://img.shields.io/badge/Angular-17-red.svg)](https://angular.io/)
 
+### [**Try it live →**](https://pdf-analyzer-frontend-production.up.railway.app)
+
 </div>
 
 ---
@@ -23,7 +25,20 @@ Rather than relying on a single extraction path, the system inspects each docume
 
 ---
 
+## Live Deployment
+
+| Service | URL |
+|---|---|
+| Frontend (User Interface) | [pdf-analyzer-frontend-production.up.railway.app](https://pdf-analyzer-frontend-production.up.railway.app) |
+| Backend API | [pdf-analyzer-backend-production.up.railway.app](https://pdf-analyzer-backend-production.up.railway.app) |
+
+The frontend is the primary entry point for end users. Paste any publicly accessible PDF URL to receive a structured analysis.
+
+---
+
 ## Architecture
+
+![Architecture Diagram](assets/Images/architecture_diagram.png)
 
 ### Ingestion Pipeline
 
@@ -112,8 +127,6 @@ Structured JSON → Angular Frontend
 
 ## AI Provider Configuration
 
-The system supports two AI providers configured in `application.yaml`.
-
 | Provider | Role | Model |
 |---|---|---|
 | Google Gemini | Primary | `gemini-2.5-flash` |
@@ -131,45 +144,18 @@ Both providers use structured JSON output mode and the same prompt contract, ens
 
 ---
 
-## Edge Case Handling
-
-| Scenario | Strategy | HTTP Response |
-|---|---|---|
-| Password-protected PDF | `InvalidPasswordException` caught explicitly | `422 Unprocessable Entity` |
-| Non-PDF file disguised as PDF | Magic-header `%PDF-` validation | `422 Unprocessable Entity` |
-| SSRF / private IP URL | Blocked before any network call | `422 Unprocessable Entity` |
-| DNS rebinding attack | Hostname resolved and re-validated post-lookup | `422 Unprocessable Entity` |
-| Oversized PDF | Hard byte limit enforced during streaming | `422 Unprocessable Entity` |
-| Too many pages | Page-count limit enforced before extraction | `422 Unprocessable Entity` |
-| Scanned / image-only PDF | Routed to OCR pipeline | `200 OK` |
-| Mixed-content PDF | Hybrid extraction — native + OCR supplement | `200 OK` |
-| Two-column academic paper | `setSortByPosition(true)` in PDFBox | `200 OK` |
-| Foreign-language PDF | Prompt instructs English output; names preserved | `200 OK` |
-| Malformed AI JSON response | `JsonSanitizer` strips markdown fences | `200 OK` |
-| AI safety block | Detected via `finishReason: SAFETY` | `422 Unprocessable Entity` |
-| AI rate limit / 429 | Exponential backoff (2s → 4s → 8s) | Retried automatically |
-| AI auth failure | Fail-fast — no retries | `502 Bad Gateway` |
-| OpenAI fallback triggered | Seamless switch, same response shape | `200 OK` |
-| Excessive redirects | Hard cap at 5 | `422 Unprocessable Entity` |
-| Unreachable URL | Timeout detection | `502 Bad Gateway` |
-| Text exceeding token budget | Smart sampling — first 3 + last 2 pages | `200 OK` |
-
----
-
 ## API Reference
 
-### Analyze a PDF
+### `POST /api/analyze`
 
-**`POST`** `/api/analyze`
-
+**Request Body:**
 ```json
 {
   "pdfUrl": "https://arxiv.org/pdf/1706.03762"
 }
 ```
 
-#### Success — `200 OK`
-
+**Success — `200 OK`:**
 ```json
 {
   "documentType": "Research Paper",
@@ -183,8 +169,7 @@ Both providers use structured JSON output mode and the same prompt contract, ens
 }
 ```
 
-#### Error — `422 Unprocessable Entity`
-
+**Error — `422 Unprocessable Entity`:**
 ```json
 {
   "status": 422,
@@ -194,7 +179,7 @@ Both providers use structured JSON output mode and the same prompt contract, ens
 }
 ```
 
-#### Response Fields
+**Response Fields:**
 
 | Field | Description |
 |---|---|
@@ -206,6 +191,35 @@ Both providers use structured JSON output mode and the same prompt contract, ens
 | `extractionStrategy` | `NATIVE`, `OCR`, or `HYBRID` — the extraction path used |
 | `totalPages` | Page count of the processed document |
 | `qualityScore` | `HIGH`, `MEDIUM`, or `LOW` — based on extraction confidence |
+
+---
+
+## Edge Cases Handled
+
+| Scenario | Strategy | HTTP Response |
+|---|---|---|
+| Password-protected PDF | `InvalidPasswordException` caught explicitly | `422 Unprocessable Entity` |
+| Non-PDF file disguised as PDF | Magic-header `%PDF-` validation | `422 Unprocessable Entity` |
+| SSRF / private IP URL | Blocked before any network call | `422 Unprocessable Entity` |
+| DNS rebinding attack | Hostname resolved and re-validated post-lookup | `422 Unprocessable Entity` |
+| Oversized PDF (>50 MB) | Hard byte limit enforced during streaming | `422 Unprocessable Entity` |
+| Too many pages (>200) | Page-count limit enforced before extraction | `422 Unprocessable Entity` |
+| Excessive redirects (>5) | Hard cap on redirect hops | `422 Unprocessable Entity` |
+| Unreachable URL | Timeout detection | `502 Bad Gateway` |
+| Scanned / image-only PDF | Routed to OCR pipeline via Tess4J | `200 OK` |
+| Mixed-content PDF | Hybrid extraction — native + OCR supplement | `200 OK` |
+| Two-column academic paper | `setSortByPosition(true)` in PDFBox | `200 OK` |
+| Large PDF exceeding token budget | Smart sampling — first 3 + last 2 pages | `200 OK` |
+| Foreign-language PDF | Prompt instructs English output; names preserved | `200 OK` |
+| Malformed AI JSON response | `JsonSanitizer` strips markdown fences | `200 OK` |
+| AI safety block (Gemini) | Detected via `finishReason: SAFETY`; routed to OpenAI | `200 OK` / `422` |
+| AI safety block (both providers) | Mapped to clean error message | `422 Unprocessable Entity` |
+| AI rate limit / 429 | Exponential backoff: 2s → 4s → 8s | Retried automatically |
+| AI auth failure | Fail-fast — no retries | `502 Bad Gateway` |
+| Both AI providers unavailable | Typed exception, clean user message | `502 Bad Gateway` |
+| OpenAI fallback triggered | Seamless provider switch, same response shape | `200 OK` |
+
+> **Google Drive links:** Use the direct download format `https://drive.google.com/uc?export=download&id=FILE_ID`. Standard sharing links (`/file/d/.../view`) return an HTML page and will be rejected by the magic-byte validator.
 
 ---
 
@@ -223,24 +237,96 @@ Both providers use structured JSON output mode and the same prompt contract, ens
 | JSON | Jackson | Bundled with Spring |
 | Build | Maven | 3.x |
 | Container | Docker | — |
+| Hosting | Railway | — |
 
 ---
 
-## Configuration
+## Running Locally
 
-All configuration is managed in `application.yaml` with environment variable overrides.
+### Prerequisites
+
+- Java 17+
+- Node.js 18+ and npm
+- Angular CLI (`npm install -g @angular/cli`)
+- Maven 3.9+
+- Tesseract OCR *(required only if `ocr-enabled: true`)*
+
+**Install Tesseract:**
+
+```bash
+# Ubuntu / Debian
+sudo apt-get install -y tesseract-ocr tesseract-ocr-eng
+
+# macOS
+brew install tesseract
+```
+
+For Windows, download the installer from the [UB Mannheim releases](https://github.com/UB-Mannheim/tesseract/wiki).
+
+---
+
+### Backend
+
+```bash
+cd pdf-analyzer-backend
+cp .env.example .env
+```
+
+Edit `.env` and configure your API keys:
+
+```env
+GEMINI_API_KEY=your_gemini_api_key
+GPT_API_KEY=your_openai_api_key
+AI_PROVIDER=auto
+ALLOWED_ORIGINS=http://localhost:4200
+```
+
+Start the server:
+
+```bash
+./mvnw spring-boot:run
+```
+
+Backend runs on `http://localhost:8080`.
+
+---
+
+### Frontend
+
+```bash
+cd pdf-analyzer-frontend
+npm install
+ng serve
+```
+
+Frontend runs on `http://localhost:4200`.
+
+---
+
+### Docker
+
+```bash
+docker build -t pdf-analyzer-backend ./pdf-analyzer-backend
+
+docker run -p 8080:8080 \
+  -e GEMINI_API_KEY=your_gemini_key \
+  -e GPT_API_KEY=your_openai_key \
+  -e AI_PROVIDER=auto \
+  -e ALLOWED_ORIGINS=http://localhost:4200 \
+  pdf-analyzer-backend
+```
+
+The Dockerfile installs Tesseract OCR automatically. Both API keys are injected at runtime and are never baked into the image.
+
+---
+
+## Configuration Reference
+
+Full configuration is managed in `application.yaml` with environment variable overrides:
 
 ```yaml
 server:
   port: ${PORT:8080}
-
-spring:
-  application:
-    name: pdf-analyzer-backend
-  config:
-    import: optional:dotenv:.env
-  jackson:
-    default-property-inclusion: non_null
 
 pdf:
   download:
@@ -277,13 +363,9 @@ openai:
 
 cors:
   allowed-origins: ${ALLOWED_ORIGINS:http://localhost:4200}
-
-logging:
-  level:
-    com.pdfanalyzer: INFO
 ```
 
-### Environment Variables
+**Environment Variables:**
 
 | Variable | Required | Description |
 |---|---|---|
@@ -293,87 +375,6 @@ logging:
 | `ALLOWED_ORIGINS` | No (default: `http://localhost:4200`) | CORS-allowed frontend origins |
 | `TESSERACT_DATA_PATH` | If OCR is enabled | Path to Tesseract `tessdata` directory |
 | `PORT` | No (default: `8080`) | Server port |
-
----
-
-## Local Development
-
-### Prerequisites
-
-- Java 17+
-- Node.js 18+ and npm
-- Angular CLI
-- Maven
-- Tesseract OCR *(required only if `ocr-enabled: true`)*
-
-### Backend
-
-```bash
-cd pdf-analyzer-backend
-cp .env.example .env
-# Configure GEMINI_API_KEY and/or GPT_API_KEY in .env
-
-./mvnw spring-boot:run
-```
-
-Runs on `http://localhost:8080`
-
-### Frontend
-
-```bash
-cd pdf-analyzer-frontend
-npm install
-ng serve
-```
-
-Runs on `http://localhost:4200`
-
-### Docker
-
-```bash
-docker build -t pdf-analyzer-backend ./pdf-analyzer-backend
-
-docker run -p 8080:8080 \
-  -e GEMINI_API_KEY=your_gemini_key \
-  -e GPT_API_KEY=your_openai_key \
-  -e AI_PROVIDER=auto \
-  pdf-analyzer-backend
-```
-
-The Dockerfile installs Tesseract OCR automatically to support scanned PDF processing.
-
----
-
-## Project Structure
-
-```
-pdf-analyzer/
-├── pdf-analyzer-backend/
-│   ├── src/main/java/com/pdfanalyzer/
-│   │   ├── config/              # App config, CORS, Gemini/OpenAI config beans
-│   │   ├── controller/          # REST controllers
-│   │   ├── dto/                 # Request and response DTOs
-│   │   ├── exception/           # Typed exceptions + GlobalExceptionHandler
-│   │   ├── model/               # Enums: ExtractionStrategy, DocumentType
-│   │   ├── service/             # Pipeline services
-│   │   ├── client/              # GeminiClient, OpenAiClient
-│   │   ├── util/                # JsonSanitizer
-│   │   ├── validation/          # UrlValidator (SSRF + DNS pinning)
-│   │   └── PdfAnalyzerApplication.java
-│   ├── src/main/resources/
-│   │   └── application.yaml
-│   ├── Dockerfile
-│   └── pom.xml
-│
-└── pdf-analyzer-frontend/
-    ├── src/
-    │   ├── app/
-    │   │   ├── components/      # Analyzer form, result card, error display
-    │   │   └── services/        # PdfAnalysisService (HTTP)
-    │   └── environments/
-    ├── angular.json
-    └── package.json
-```
 
 ---
 
