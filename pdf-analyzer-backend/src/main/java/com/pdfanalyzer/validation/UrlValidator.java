@@ -39,30 +39,35 @@ public class UrlValidator {
     );
 
     public void validate(String url) {
-    if (url == null || url.isBlank()) {
-        throw new InvalidUrlException("PDF URL must not be blank.");
-    }
 
-    // Check length BEFORE URI.create() — which throws IllegalArgumentException for extreme lengths
-    if (url.length() > 2048) {
-        throw new InvalidUrlException("URL exceeds maximum allowed length of 2048 characters.");
-    }
+        // Null/blank check – reject empty URLs early
+        if (url == null || url.isBlank()) {
+            throw new InvalidUrlException("PDF URL must not be blank.");
+        }
 
-    URI uri;
-    try {
-        uri = new URI(url.trim());
-    } catch (URISyntaxException | IllegalArgumentException ex) {  // ← ADD IllegalArgumentException
-        throw new InvalidUrlException("The provided URL is malformed or contains invalid characters.");
-    }
+        // Check length BEFORE URI.create() — which throws IllegalArgumentException for extreme lengths
+        if (url.length() > 2048) {
+            throw new InvalidUrlException("URL exceeds maximum allowed length of 2048 characters.");
+        }
 
-    validateScheme(uri);
-    validateHost(uri);
-    validateResolvedIp(uri.getHost());
-}
+
+        URI uri;
+        try {
+            // Parse into URI – structural validation:
+            uri = new URI(url.trim());
+        } catch (URISyntaxException | IllegalArgumentException ex) {  // ← ADD IllegalArgumentException
+            throw new InvalidUrlException("The provided URL is malformed or contains invalid characters.");
+        }
+
+        validateScheme(uri);
+        validateHost(uri);
+        validateResolvedIp(uri.getHost());
+    }
 
 
 
     private void validateScheme(URI uri) {
+        // extract and validate http,https
         String scheme = uri.getScheme();
         if (scheme == null) {
             throw new InvalidUrlException(
@@ -75,6 +80,8 @@ public class UrlValidator {
     }
 
     private void validateHost(URI uri) {
+
+        // internet domain name or host addressing the server "eg: arxiv.org"
         String host = uri.getHost();
         if (host == null || host.isBlank()) {
             throw new InvalidUrlException("URL must contain a valid hostname.");
