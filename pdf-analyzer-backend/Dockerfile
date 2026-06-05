@@ -17,11 +17,13 @@ RUN MAVEN_OPTS="-Xmx512m -XX:MaxMetaspaceSize=192m" \
 # ── Stage 2: Runtime ──────────────────────────────────────────
 FROM eclipse-temurin:21-jre-alpine AS runtime
 
-# cache-bust: 2026-06-05 — force clean Tesseract reinstall
-# tesseract-ocr on Alpine 3.18+ already includes eng.traineddata
-# tesseract-ocr-data-eng removed — not a separate package on Alpine 3.18+
-RUN apk add --no-cache \
+# cache-bust: 2026-06-05-v3
+# On Alpine with tesseract 5.5.1, eng.traineddata is a SEPARATE package
+# Must add edge/community repo to get tesseract-ocr-data-eng
+RUN echo "https://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories \
+    && apk add --no-cache \
         tesseract-ocr \
+        tesseract-ocr-data-eng \
         tesseract-ocr-data-osd \
     && tesseract --version \
     && ls -la /usr/share/tessdata/ \
