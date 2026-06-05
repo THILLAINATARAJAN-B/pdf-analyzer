@@ -216,38 +216,54 @@ public class OpenAiClient {
                 || s.equalsIgnoreCase("Not Found");
     }
 
-    private String buildPrompt(String pdfText, String documentTypeHint) {
-        return """
-                You are a professional document analyst specializing in structured data extraction.
 
-                Document type hint (use to guide your analysis): %s
+private String buildPrompt(String pdfText, String documentTypeHint) {
+    return """
+            You are a professional document analyst specializing in structured data extraction.
 
-                Analyze the document text below and return ONLY a valid JSON object.
-                No markdown. No code fences. No explanation. No preamble.
+            STRUCTURAL PRE-CLASSIFICATION (heuristic — may be inaccurate): %s
 
-                Exactly this JSON structure:
-                {
-                  "documentType": "%s",
-                  "title": "Full title of the document",
-                  "authors": "Author One, Author Two (or 'Not Found' if not present)",
-                  "summary": "Sentence one. Sentence two. Sentence three. At least three sentences.",
-                  "keyTakeaway": "The single most important insight from this document."
-                }
+            Analyze the document text below and return ONLY a valid JSON object.
+            No markdown. No code fences. No explanation. No preamble.
 
-                Strict rules:
-                - Output ONLY the JSON object. Nothing before or after it.
-                - ALL output values MUST be in English, regardless of the document's source language.
-                - All values must be non-empty strings.
-                - Use "Not Found" only if a field genuinely cannot be determined.
-                - summary must contain at least 3 complete sentences.
-                - keyTakeaway must be specific and substantive — not generic.
+            Exactly this JSON structure:
+            {
+              "documentType": "<determined from content — see rules below>",
+              "title": "Full title of the document",
+              "authors": "Author One, Author Two (or 'Not Found' if not present)",
+              "summary": "Sentence one. Sentence two. Sentence three. At least three sentences.",
+              "keyTakeaway": "The single most important insight from this document.",
+              "qualityScore": "HIGH or MEDIUM or LOW"
+            }
 
-                Document text:
-                ---
-                %s
-                ---
-                """.formatted(documentTypeHint, documentTypeHint, pdfText);
-    }
+            DOCUMENT TYPE RULES:
+            - Determine documentType from TEXT CONTENT, NOT from the structural hint above.
+            - The structural hint uses page count and text density — it is often wrong.
+            - Override it confidently if the content clearly indicates a different type.
+            - Valid values:
+                "Research Paper", "Academic Thesis", "Slide Deck / Presentation",
+                "Technical Report", "Government Document", "Legal Document",
+                "Financial Report", "General Document", "News Article", "Book Chapter"
+
+            QUALITY SCORE RULES:
+            - "HIGH"   — clean native text, all fields extractable with confidence
+            - "MEDIUM" — OCR text or partial extraction, meaning clear but imperfect
+            - "LOW"    — very short, heavily garbled, or insufficient to summarize
+
+            STRICT RULES:
+            - Output ONLY the JSON object. Nothing before or after it.
+            - ALL output values MUST be in English regardless of source language.
+            - All values must be non-empty strings.
+            - Use "Not Found" only if a field genuinely cannot be determined.
+            - summary must contain at least 3 complete sentences.
+            - keyTakeaway must be specific and substantive — not generic.
+
+            Document text:
+            ---
+            %s
+            ---
+            """.formatted(documentTypeHint, pdfText);
+}
 
     private String buildRequestBody(String prompt) {
         try {

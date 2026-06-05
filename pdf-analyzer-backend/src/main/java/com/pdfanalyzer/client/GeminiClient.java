@@ -335,57 +335,65 @@ public class GeminiClient {
      * 4. keyTakeaway must be specific and substantive.
      */
     private String buildPrompt(String pdfText, String documentTypeHint) {
-        boolean hasStrongHint = documentTypeHint != null
-                && !documentTypeHint.equalsIgnoreCase("General Document")
-                && !documentTypeHint.equalsIgnoreCase("Unknown Document");
+    return """
+            You are a professional document analyst specializing in structured data extraction.
 
-        String documentTypeInstruction = hasStrongHint
-                ? "- The documentType MUST be \""
-                        + documentTypeHint
-                        + "\" — do not override this with your own classification."
-                : "- Determine the documentType from the content. Use one of: "
-                        + "Research Paper, Slide Deck / Presentation, Business Report, "
-                        + "Legal Document, Technical Manual, Invoice or Form, General Document.";
+            STRUCTURAL PRE-CLASSIFICATION (heuristic — may be inaccurate): %s
 
-        return """
-                You are a professional document analyst specializing in structured data extraction.
+            Analyze the document text below and return ONLY a valid JSON object.
+            No markdown. No code fences. No explanation. No preamble.
 
-                Document type hint: %s
+            Required JSON structure:
+            {
+              "documentType": "<determined from content — see rules below>",
+              "title": "<full title of the document>",
+              "authors": "<Author One, Author Two — or 'Not Found' if absent>",
+              "summary": "<Sentence one. Sentence two. Sentence three. Minimum three sentences.>",
+              "keyTakeaway": "<The single most important insight from this document.>",
+              "qualityScore": "<HIGH | MEDIUM | LOW>"
+            }
 
-                Analyze the document text below and return ONLY a valid JSON object.
-                No markdown. No code fences. No explanation. No preamble.
+            DOCUMENT TYPE RULES:
+            - Determine documentType from TEXT CONTENT, NOT from the structural hint above.
+            - The structural hint uses page count and text density — it is often wrong.
+            - Override it confidently if the content clearly indicates a different type.
+            - Valid values (pick the single best match):
+                "Research Paper"             — academic study, methodology, citations, abstract
+                "Academic Thesis"            — dissertation, university submission, chapters
+                "Slide Deck / Presentation"  — bullet points, minimal prose, slide titles
+                "Technical Report"           — engineering specs, system documentation
+                "Government Document"        — policy, legislation, federal/state reports
+                "Legal Document"             — contracts, agreements, court filings
+                "Financial Report"           — earnings, balance sheets, annual reports
+                "General Document"           — does not fit any specific category above
+                "News Article"               — journalistic writing, dateline, publication
+                "Book Chapter"               — narrative prose, chapter structure
 
-                Required JSON structure:
-                {
-                  "documentType": "<document type>",
-                  "title": "<full title of the document>",
-                  "authors": "<Author One, Author Two — or 'Not Found' if absent>",
-                  "summary": "<Sentence one. Sentence two. Sentence three. Minimum three sentences.>",
-                  "keyTakeaway": "<The single most important insight from this document.>"
-                }
+            QUALITY SCORE RULES:
+            - "HIGH"   — clean native text, all fields extractable with confidence
+            - "MEDIUM" — OCR text or partial extraction, meaning is clear but imperfect
+            - "LOW"    — very short, heavily garbled, or insufficient to summarize reliably
 
-                                Strict rules:
-                - Output ONLY the JSON object. Nothing before or after it.
-                - ALL output values MUST be in English, regardless of the document's source language.
-                  Preserve proper nouns, technical terms, and titles as-is.
-                - All values must be non-empty strings.
-                - Use "Not Found" only if a field genuinely cannot be determined.
-                - summary must contain at least 3 complete, substantive sentences.
-                - keyTakeaway must be specific to this document — not generic filler.
-                - title: Extract ONLY the exact title as it appears printed in the document.
-                  Do NOT paraphrase, infer, or rewrite the title under any circumstances.
-                  If the title cannot be found, return "Not Found".
-                - authors: If more than 5 authors are listed, return the first 3 names
-                  followed by "et al." (e.g., "Mark Chen, Jerry Tworek, Heewoo Jun et al.").
-                  Do NOT return "Not Found" for papers that visibly list authors.
-                %s
+            STRICT OUTPUT RULES:
+            - Output ONLY the JSON object. Nothing before or after it.
+            - ALL output values MUST be in English regardless of source language.
+              Preserve proper nouns, technical terms, and titles as-is.
+            - All values must be non-empty strings.
+            - Use "Not Found" only if a field genuinely cannot be determined.
+            - summary must contain at least 3 complete, substantive sentences.
+            - keyTakeaway must be specific to this document — not generic filler.
+            - title: Extract ONLY the exact title as printed in the document.
+              Do NOT paraphrase, infer, or rewrite the title.
+              If not found, return "Not Found".
+            - authors: If more than 5 authors, return first 3 followed by "et al."
+              Do NOT return "Not Found" for papers that visibly list authors.
 
-                Document text:
-                ---
-                %s
-                ---
-                """.formatted(documentTypeHint, documentTypeInstruction, pdfText);
-    }
+            Document text:
+            ---
+            %s
+            ---
+            """.formatted(documentTypeHint, pdfText);
+}
 
     // ── Request Body Builders ─────────────────────────────────────────────────
 
@@ -449,7 +457,7 @@ public class GeminiClient {
         Map<String, Object> schema = new LinkedHashMap<>();
         schema.put("type", "object");
         schema.put("required",
-                List.of("documentType", "title", "authors", "summary", "keyTakeaway"));
+                List.of("documentType", "title", "authors", "summary", "keyTakeaway", "qualityScore"));
 
         Map<String, Object> properties = new LinkedHashMap<>();
         properties.put("documentType", stringProperty());
@@ -457,6 +465,7 @@ public class GeminiClient {
         properties.put("authors",      stringProperty());
         properties.put("summary",      stringProperty());
         properties.put("keyTakeaway",  stringProperty());
+        properties.put("qualityScore", stringProperty());
         schema.put("properties", properties);
 
         return schema;

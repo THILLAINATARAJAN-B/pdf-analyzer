@@ -10,13 +10,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-/**
- * Routes AI analysis to the configured provider (Gemini, OpenAI, or AUTO).
- *
- * AUTO mode tries Gemini first, falls back to OpenAI on auth/config failure.
- * Large document chunking is handled transparently inside GeminiClient
- * and OpenAiClient — this service does not need to know about it.
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -35,11 +28,29 @@ public class AiAnalysisService {
         AiProviderConfig.Provider provider = aiProviderConfig.resolvedProvider();
         log.info("AI provider mode: {}", provider);
 
+        // Build enriched hint — AI gets structural suggestion but overrides from content
+        String enrichedHint = buildEnrichedHint(documentTypeHint);
+
         return switch (provider) {
-            case OPENAI -> analyzeWithOpenAi(extractedText, documentTypeHint);
-            case GEMINI -> analyzeWithGemini(extractedText, documentTypeHint);
-            case AUTO   -> analyzeWithAutoFallback(extractedText, documentTypeHint);
+            case OPENAI -> analyzeWithOpenAi(extractedText, enrichedHint);
+            case GEMINI -> analyzeWithGemini(extractedText, enrichedHint);
+            case AUTO   -> analyzeWithAutoFallback(extractedText, enrichedHint);
         };
+    }
+
+    /**
+     * Converts heuristic label into a soft suggestion so the AI
+     * can override it based on actual text content.
+     *
+     * Example: "SLIDE_DECK" → hint string that AI can reject
+     * if the content is clearly a library report, not slides.
+     */
+    private String buildEnrichedHint(String heuristicHint) {
+        if (heuristicHint == null || heuristicHint.isBlank()) {
+            return "UNKNOWN — determine type from content";
+        }
+        // Pass heuristic as a suggestion only — prompt instructs AI to override if wrong
+        return heuristicHint + " (structural heuristic — override from content if incorrect)";
     }
 
     private AnalysisResult analyzeWithAutoFallback(String text, String hint) {
@@ -54,16 +65,13 @@ public class AiAnalysisService {
                 throw ex;
             }
         }
-
         if (openAiClient.isConfigured()) {
             log.info("Gemini not configured — using OpenAI.");
             return analyzeWithOpenAi(text, hint);
         }
-
         throw new AiServiceException(
                 "No AI provider configured. Set GEMINI_API_KEY or GPT_API_KEY.");
     }
-
 
     private AnalysisResult analyzeWithGemini(String text, String hint) {
         log.info("Sending to Gemini. Document type hint: {}", hint);
