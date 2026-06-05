@@ -60,39 +60,49 @@ public class NativeTextExtractionService {
     }
 
     private String smartSample(PDDocument document, PDFTextStripper stripper,
-                            int totalPages) throws IOException {
+                        int totalPages) throws IOException {
 
-        int footerStart = totalPages - 2 + 1;  // last 2 pages
+    int footerStart = totalPages - 2 + 1;
 
-        // Guard: header and footer overlap — just extract everything
-        if (footerStart <= HEADER_PAGES + 1) {
-            log.info("Smart sampling — short doc ({} pages), extracting fully", totalPages);
-            stripper.setStartPage(1);
-            stripper.setEndPage(totalPages);
-            return stripper.getText(document);
-        }
-
-        log.info("Smart sampling — extracting first {} + last 2 pages from {} total",
-                HEADER_PAGES, totalPages);
-
-        // Header: pages 1–5 (title, abstract, full author block)
+    if (footerStart <= HEADER_PAGES + 1) {
+        log.info("Smart sampling — short doc ({} pages), extracting fully", totalPages);
         stripper.setStartPage(1);
-        stripper.setEndPage(HEADER_PAGES);
-        String header = stripper.getText(document);
-
-        // Footer: last 2 pages (conclusions, acknowledgements)
-        stripper.setStartPage(footerStart);
         stripper.setEndPage(totalPages);
-        String footer = stripper.getText(document);
-
-        int omittedStart = HEADER_PAGES + 1;
-        int omittedEnd   = footerStart - 1;
-
-        return header
-                + "\n\n[--- Pages " + omittedStart + " to " + omittedEnd
-                + " omitted for token efficiency ---]\n\n"
-                + footer;
+        return stripper.getText(document);
     }
+
+    log.info("Smart sampling — extracting first {} + last 2 pages from {} total",
+            HEADER_PAGES, totalPages);
+
+    // ── Page 1: extract TWICE — once sorted (layout-aware) and once unsorted
+    //    (reading-order). Prepend both so the AI sees author names regardless
+    //    of how PDFBox handles the multi-column header grid.
+    stripper.setSortByPosition(false);   // reading order — better for author grids
+    stripper.setStartPage(1);
+    stripper.setEndPage(1);
+    String page1ReadingOrder = stripper.getText(document);
+
+    stripper.setSortByPosition(true);    // layout order — better for body text
+    stripper.setStartPage(1);
+    stripper.setEndPage(HEADER_PAGES);
+    String header = stripper.getText(document);
+
+    stripper.setStartPage(footerStart);
+    stripper.setEndPage(totalPages);
+    String footer = stripper.getText(document);
+
+    int omittedStart = HEADER_PAGES + 1;
+    int omittedEnd   = footerStart - 1;
+
+    // Prepend reading-order page 1 so AI sees all author names in natural flow
+    return "[PAGE 1 - READING ORDER FOR AUTHOR EXTRACTION]\n"
+            + page1ReadingOrder
+            + "\n[PAGE 1-" + HEADER_PAGES + " - LAYOUT ORDER]\n"
+            + header
+            + "\n\n[--- Pages " + omittedStart + " to " + omittedEnd
+            + " omitted for token efficiency ---]\n\n"
+            + footer;
+}
 
     private String normalizeAndTruncate(String raw) {
         if (raw == null || raw.isBlank()) return "";

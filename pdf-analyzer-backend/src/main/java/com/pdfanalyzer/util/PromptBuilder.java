@@ -56,8 +56,8 @@ public class PromptBuilder {
                 AUTHORS RULES:
                 - List ALL authors exactly as they appear in the document, separated by commas.
                 - Do NOT truncate the author list. Include every author name present.
-                - Exception: if there are more than 20 authors, return EXACTLY the first 5 (no fewer) followed by "et al."
-                - Look for author names in the header, byline, AND references section.
+                - Exception: if there are more than 5 authors, return EXACTLY the first 5 followed by "et al."
+                - Look for author names in the header, byline.
                   The references section often repeats names in plain "Surname, Initial." format —
                   use this as a fallback when the header text is unclear or missing.
                 - CRITICAL: If OCR text appears garbled (character substitutions such as l→i,
@@ -70,7 +70,7 @@ public class PromptBuilder {
                 - Use "Not Found" only when names genuinely cannot be read from the extracted text.
 
                 SUMMARY RULES:
-                - Write exactly 3 to 5 complete, substantive sentences.
+                - Write exactly 2 to 3 concise sentences, substantive sentences.
                 - Each sentence must convey a distinct aspect of the document.
                 - Do not use generic filler sentences.
                 - Do not repeat the title or key takeaway verbatim.
