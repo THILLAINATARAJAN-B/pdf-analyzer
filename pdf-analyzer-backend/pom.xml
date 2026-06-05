@@ -21,6 +21,20 @@
         <java.version>17</java.version>
     </properties>
 
+    <!-- Globally suppress commons-logging from ALL transitive paths.
+         tess4j re-introduces it through multiple transitive deps
+         (jai-imageio-core, ghost4j, etc), defeating a single exclusion. -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>commons-logging</groupId>
+                <artifactId>commons-logging</artifactId>
+                <version>1.2</version>
+                <scope>provided</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
 
         <!-- Spring Boot Web -->
@@ -43,8 +57,8 @@
         </dependency>
 
         <!-- Tess4J for OCR fallback (Tesseract wrapper) -->
-        <!-- commons-logging excluded: tess4j pulls it transitively,
-             conflicting with Spring Boot's spring-jcl bridge -->
+        <!-- Direct exclusion + dependencyManagement scope=provided above
+             together kill commons-logging from all transitive paths -->
         <dependency>
             <groupId>net.sourceforge.tess4j</groupId>
             <artifactId>tess4j</artifactId>
@@ -117,5 +131,4 @@
             </plugin>
         </plugins>
     </build>
-
 </project>
