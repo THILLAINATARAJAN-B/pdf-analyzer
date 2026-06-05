@@ -6,24 +6,24 @@
 
 Built with Spring Boot · Angular · Apache PDFBox · Tess4J · Google Gemini · OpenAI GPT
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](../LICENSE)
 [![Java](https://img.shields.io/badge/Java-21-orange.svg)](https://openjdk.org/projects/jdk/21/)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2.5-brightgreen.svg)](https://spring.io/projects/spring-boot)
-[![Angular](https://img.shields.io/badge/Angular-17.3.12-red.svg)](https://angular.io/)
+[![Docker](https://img.shields.io/badge/Docker-Alpine-blue.svg)](https://www.docker.com/)
 
 ### [**Try it live →**](https://pdf-analyzer-frontend-production.up.railway.app)
 
 </div>
 
----
+***
 
 ## Overview
 
 PDF Analyzer is a document ingestion and analysis service that processes real-world PDFs — including scanned files, password-protected documents, multi-column academic papers, and foreign-language content — and returns structured, AI-generated analysis via a clean REST API.
 
-Rather than relying on a single extraction path, the system inspects each document before processing and routes it through the appropriate strategy: native text extraction, OCR, or a hybrid of both. Extracted text is normalized and passed to an AI layer that supports two providers with automatic fallback, structured JSON output, and retry logic.
+Rather than relying on a single extraction path, the system inspects each document before processing and routes it through the appropriate strategy: native text extraction, OCR, or a hybrid of both. Extracted text is passed to an AI layer that supports two providers with automatic fallback, structured JSON output, and retry logic. The AI is the **sole classification authority** — a heuristic type hint from the inspection stage is passed as a soft suggestion only, and the AI overrides it based on actual content.
 
----
+***
 
 ## Live Deployment
 
@@ -34,13 +34,13 @@ Rather than relying on a single extraction path, the system inspects each docume
 
 The frontend is the primary entry point for end users. Paste any publicly accessible PDF URL to receive a structured analysis.
 
----
+***
 
 ## Architecture
 
 ![Architecture Diagram](assets/Images/architecture_diagram.png)
 
-### Ingestion Pipeline
+### 5-Stage Ingestion Pipeline
 
 ```
 PDF URL Submitted
@@ -49,100 +49,153 @@ PDF URL Submitted
 [1]  URL Validation
      • Scheme whitelist (http/https only)
      • Hostname & private IP blocklist
+     • RFC 1918 private range check
      • DNS pinning (rebinding protection)
       │
       ▼
-[2]  Chunked Download
-     • Streaming with hard byte limit
-     • Manual redirect control (max 5)
-     • %PDF- magic-header validation
+[2]  Safe Chunked Download
+     • 8 KB streaming chunks with inline byte limit (50 MB)
+     • Manual redirect following — hard cap at 5 hops
+     • %PDF- magic-header validation on first chunk
       │
       ▼
 [3]  PDF Inspection
-     • Page count validation
-     • Password-protected detection
-     • Text density sampling (first 5 pages)
-     • Extraction strategy decision
-     • Document pre-classification
+     • Password-protected detection (PdfPasswordException)
+     • Page count validation (max 200)
+     • Text density sampling — first 5 pages → extraction strategy
+     • Wider 10-page sample → score-based pre-classification hint
+     • Outputs: strategy (NATIVE / OCR / HYBRID) + soft DocumentType hint
       │
       ▼
-[4]  Extraction Strategy Router
-     ├── NATIVE  → PDFBox (setSortByPosition=true)
-     ├── OCR     → Tess4J / Tesseract
-     └── HYBRID  → Native + OCR supplement
+[4]  Text Extraction
+     ├── NATIVE  → PDFBox PDFTextStripper (setSortByPosition=true)
+     │             Smart sampling: first 3 + last 2 pages for docs > 5 pages
+     ├── OCR     → Tess4J / Tesseract LSTM at 200 DPI (ImageType.GRAY)
+     │             Per-page rendering; page failures skipped, pipeline continues
+     └── HYBRID  → Native attempted first; OCR runs if native chars < threshold (100)
+                   Higher-quality result passed downstream
       │
       ▼
-[5]  Text Normalization
-     • Whitespace normalization
-     • Token-budget-aware truncation
-     • Document type hint generation
-      │
-      ▼
-[6]  AI Analysis
-     ├── Primary  → Google Gemini 2.5 Flash
-     └── Fallback → OpenAI GPT-4o Mini
-     • Structured JSON output mode
-     • Exponential backoff retry
-     • Safety-filter detection
-     • English output normalization
-      │
-      ▼
-[7]  Response Validation
-     • JSON sanitization fallback
-     • Field completeness check
-     • Pipeline metadata injection
-      │
-      ▼
-Structured JSON → Angular Frontend
+[5]  AI Analysis
+     • Gemini 2.5 Flash (primary) with exponential backoff retry
+     • GPT-4o-mini (automatic fallback on Gemini failure)
+     • JsonSanitizer strips markdown fences before parsing
+     • All output fields normalised to English
 ```
 
-### Backend Services
+### Stage 3 — PDF Inspection
+
+**5-page sample — extraction strategy:**
+
+Samples the first 5 pages to determine extraction strategy.
+
+- Selects one of three strategies — `NATIVE`, `OCR`, or `HYBRID` — based on character density:
+  - `0 chars` → `OCR` (no embedded text at all)
+  - `1–99 chars` → `HYBRID` (some text, likely insufficient without OCR supplement)
+  - `≥ 100 chars` → `NATIVE` (sufficient embedded text)
+
+**10-page sample — pre-classification hint:**
+
+A separate, wider pass scores the first 10 pages against heuristics to produce a soft `DocumentType` hint passed to the AI as context. The AI may override it.
+
+| Priority | Type | Signals |
+|---|---|---|
+| 1 | `RESEARCH_PAPER` | `abstract` + (`references` or `bibliography` or `conclusion`) |
+| 2 | `GOVERNMENT_DOCUMENT` | `internal revenue service`, `department of the treasury`, or IRS/taxpayer signals |
+| 3 | `LEGAL_DOCUMENT` | `terms and conditions`, `whereas`, `hereinafter`, `party agrees` |
+| 4 | `INVOICE_OR_FORM` | `invoice`, `bill to`, `total amount`, `purchase order` — **only if ≤ 25 pages** |
+| 5 | `SLIDE_DECK` | ≤ 30 pages and < 500 sample characters (structurally sparse) |
+| 6 | `UNKNOWN` | No signal matched — AI determines type entirely from content |
+
+The page-count guard on `INVOICE_OR_FORM` prevents long IRS publications from being misclassified as forms simply because they mention "Form 1040".
+
+### Stage 4 — Text Extraction
+
+Strategy is determined by Stage 3 and executed by the `PdfExtractionOrchestrator`.
+
+**NATIVE** — `PDFTextStripper` with `setSortByPosition(true)` for layout-aware extraction. Correctly handles multi-column IEEE papers and slide decks without column interleaving. For documents longer than 5 pages, smart sampling extracts the first 3 pages (title, abstract, introduction) and the last 2 pages (conclusion, references), keeping text within the AI token budget. Documents exceeding the 35,000-character chunk threshold are split into 12,000-character chunks with 500-character overlaps.
+
+**OCR** — `PDFRenderer` renders each page as a `BufferedImage` at 200 DPI using `ImageType.GRAY` (lower memory than RGB). Passed to Tess4J with `OEM_LSTM_ONLY` and `PSM_AUTO`. `image.flush()` is called in a `finally` block after each page to release native graphics memory immediately. Capped at 10 pages per document. Individual page failures are logged and skipped — the pipeline does not abort.
+
+**HYBRID** — Attempts native extraction first. If the character count is above zero but below the quality threshold (100 chars), OCR runs as the dominant path. The higher-quality result is passed to Stage 5.
+
+### Stage 5 — AI Analysis
+
+The AI layer is the **sole classification authority** for document type. The heuristic hint from Stage 3 is injected as a soft suggestion using `buildEnrichedHint()`:
+
+```
+"RESEARCH_PAPER (structural heuristic — override from content if incorrect)"
+"UNKNOWN — determine type from content"
+```
+
+The AI reads actual extracted text and decides the final `documentType` independently. It is explicitly instructed to override the hint if the content contradicts it.
+
+**Provider routing:**
+
+```
+AiAnalysisService
+├── AUTO mode
+│   ├── GeminiClient.analyze(text, enrichedHint)
+│   │   ├── Success                              → return AnalysisResult
+│   │   ├── Safety block (finishReason: SAFETY)  → fallback to OpenAI
+│   │   ├── Rate limit (429, retries exhausted)  → fallback to OpenAI
+│   │   ├── Service error (5xx, retries)         → fallback to OpenAI
+│   │   └── Auth failure (401/403)               → immediate 502, no fallback
+│   │
+│   └── OpenAiClient.analyze(text, enrichedHint)  [fallback]
+│       ├── Success                              → return AnalysisResult
+│       ├── Rate limit (429, retries exhausted)  → 502
+│       └── Auth failure (401)                   → immediate 502, no retry
+│
+├── GEMINI mode → GeminiClient only (same retry rules, no OpenAI fallback)
+└── OPENAI mode → OpenAiClient only
+```
+
+Both providers receive the same enriched hint and produce an identical `AnalysisResult`. The calling layer is unaware of which provider responded.
+
+**Other AI layer behaviors:**
+- Exponential backoff on rate limits and transient errors: 2s → 4s → 8s
+- Large documents chunked at 8,000 characters (max 8 chunks) before AI submission
+- `JsonSanitizer` strips markdown fences and extracts the first valid `{}` block from AI output before parsing
+- All output fields normalized to English; proper nouns (author names, titles) preserved
+
+***
+
+## Tech Stack
+
+| Layer | Technology | Version |
+|---|---|---|
+| Language | Java (Eclipse Temurin) | OpenJDK 21.0.11 |
+| Framework | Spring Boot | 3.2.5 |
+| PDF Native Extraction | Apache PDFBox | 3.0.2 |
+| OCR Engine | Tess4J (Tesseract LSTM) | 5.11.0 |
+| AI — Primary | Google Gemini | 2.5 Flash |
+| AI — Fallback | OpenAI GPT | 4o-mini |
+| JSON | Jackson | Bundled with Spring |
+| Boilerplate | Lombok | 4.0.0 |
+| Build | Maven (wrapper) | 3.9.16 |
+| Containerization | Docker | 29.1.3 |
+| Deployment | Railway | — |
+
+***
+
+## Service Map
 
 | Service | Responsibility |
 |---|---|
 | `UrlValidator` | SSRF protection, DNS pinning, scheme/IP validation |
 | `PdfDownloadService` | Chunked streaming download, redirect control, magic-byte check |
-| `PdfInspectionService` | Structural inspection, strategy decision, pre-classification |
-| `NativeTextExtractionService` | PDFBox extraction with positional sort for multi-column documents |
-| `OcrExtractionService` | Tess4J/Tesseract OCR via page rendering at 200 DPI |
+| `PdfInspectionService` | Strategy decision (5-page sample) + score-based pre-classification hint (10-page sample) |
 | `PdfExtractionOrchestrator` | Routes NATIVE / OCR / HYBRID based on inspection result |
-| `DocumentClassificationService` | Heuristic type classification for AI prompt enrichment |
-| `AiAnalysisService` | Prompt building and AI provider delegation |
-| `GeminiClient` | Gemini API client with retry, safety detection, and JSON mode |
-| `OpenAiClient` | OpenAI API client — fallback when Gemini is unavailable |
+| `NativeTextExtractionService` | PDFBox extraction with positional sort; smart sampling for large docs |
+| `OcrExtractionService` | Tess4J/Tesseract LSTM per-page OCR; per-page failure isolation |
+| `AiAnalysisService` | Builds enriched hint, delegates to Gemini or OpenAI, handles AUTO fallback |
+| `GeminiClient` | Gemini API client with retry, safety detection, exponential backoff |
+| `OpenAiClient` | OpenAI API client — fallback when Gemini fails |
 | `JsonSanitizer` | Strips markdown fences, extracts clean JSON from AI output |
-| `GlobalExceptionHandler` | Centralized typed exception-to-HTTP mapping |
+| `GlobalExceptionHandler` | Centralized typed exception-to-HTTP status mapping |
 
-### Frontend Components
-
-| Component / Service | Responsibility |
-|---|---|
-| `AppComponent` | Root layout and routing |
-| `AnalyzerComponent` | PDF URL input, submission, and result display |
-| `ResultCardComponent` | Structured output rendering |
-| `PdfAnalysisService` | HTTP client to backend API |
-| `ErrorDisplayComponent` | User-facing error messages by error type |
-
----
-
-## AI Provider Configuration
-
-| Provider | Role | Model |
-|---|---|---|
-| Google Gemini | Primary | `gemini-2.5-flash` |
-| OpenAI | Fallback | `gpt-4o-mini` |
-
-Provider selection is controlled by the `AI_PROVIDER` environment variable:
-
-| Value | Behaviour |
-|---|---|
-| `auto` | Gemini first; falls back to OpenAI automatically |
-| `gemini` | Gemini only |
-| `openai` | OpenAI only |
-
-Both providers use structured JSON output mode and the same prompt contract, ensuring consistent response shape regardless of which provider handles the request.
-
----
+***
 
 ## API Reference
 
@@ -160,119 +213,92 @@ Both providers use structured JSON output mode and the same prompt contract, ens
 {
   "documentType": "Research Paper",
   "title": "Attention Is All You Need",
-  "authors": "Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones",
-  "summary": "The paper introduces the Transformer, a novel sequence-to-sequence architecture built entirely on attention mechanisms. It eliminates recurrence and convolutions, enabling greater training parallelism. The Transformer achieved state-of-the-art results on WMT 2014 English-to-German and English-to-French translation benchmarks.",
-  "keyTakeaway": "Self-attention alone is sufficient to capture long-range dependencies in language, replacing recurrent and convolutional layers entirely.",
+  "authors": "Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Łukasz Kaiser, Illia Polosukhin",
+  "summary": "The paper introduces the Transformer, a novel architecture for sequence transduction that relies entirely on attention mechanisms. This approach eliminates the need for recurrence and convolutions, allowing for greater parallelization and efficiency in training. The Transformer demonstrated superior performance on machine translation tasks, achieving state-of-the-art results on WMT 2014 benchmarks.",
+  "keyTakeaway": "Self-attention replaces recurrence and convolutions entirely, enabling parallelization and state-of-the-art translation benchmarks.",
   "extractionStrategy": "NATIVE",
   "totalPages": 15,
   "qualityScore": "HIGH"
 }
 ```
 
-**Error — `422 Unprocessable Entity`:**
-```json
+**Error Responses:**
+
+| Status | Scenario | Message |
+|---|---|---|
+| `400` | Blank or missing `pdfUrl` | `pdfUrl: must not be blank` |
+| `422` | Invalid scheme | `Only http and https URLs are permitted.` |
+| `422` | Invalid or blocked URL | `Access to private IP address ranges is not permitted.` |
+| `422` | DNS rebinding attempt | `Access to resolved IP address is not permitted.` |
+| `422` | Password-protected PDF | `This PDF is password-protected. Please provide an unlocked version.` |
+| `422` | Not a PDF file | `The URL returned a web page or plain text, not a PDF.` |
+| `422` | PDF exceeds 50 MB | `PDF exceeds the maximum allowed size of 50 MB.` |
+| `422` | PDF exceeds 200 pages | `PDF exceeds the maximum allowed page count of 200.` |
+| `422` | Too many redirects | `Too many redirects (max 5).` |
+| `422` | AI safety block (both providers) | `This document could not be analyzed due to AI safety policy restrictions.` |
+| `502` | PDF host unreachable | `Failed to download PDF. HTTP status: 404` |
+| `502` | Auth failure on AI key | `AI service authentication failed. Check your API key.` |
+| `502` | Both AI providers unavailable | `AI service is temporarily unavailable. Please retry.` |
+
+**Response Schema:**
+
+```typescript
 {
-  "status": 422,
-  "error": "Unprocessable Entity",
-  "message": "This PDF is password-protected. Please provide an unlocked version.",
-  "timestamp": "2026-06-05T01:54:00.000Z"
+  documentType:       string;   // AI-determined — heuristic hint may be overridden
+  title:              string;
+  authors:            string;   // "Not Found" if absent or OCR-unreadable
+  summary:            string;   // Minimum 3 sentences
+  keyTakeaway:        string;
+  extractionStrategy: string;   // "NATIVE" | "OCR" | "HYBRID"
+  totalPages:         number;
+  qualityScore:       string;   // "HIGH" | "MEDIUM" | "LOW"
 }
 ```
 
-**Response Fields:**
-
-| Field | Description |
-|---|---|
-| `documentType` | Classified type: Research Paper, Slide Deck, Business Report, Legal Document, etc. |
-| `title` | Document title extracted or inferred |
-| `authors` | Author names, or `"Not Found"` |
-| `summary` | Three or more sentences summarizing the document |
-| `keyTakeaway` | The single most important insight from the document |
-| `extractionStrategy` | `NATIVE`, `OCR`, or `HYBRID` — the extraction path used |
-| `totalPages` | Page count of the processed document |
-| `qualityScore` | `HIGH`, `MEDIUM`, or `LOW` — based on extraction confidence |
-
----
+***
 
 ## Edge Cases Handled
 
-| Scenario | Strategy | HTTP Response |
+| Scenario | Detection Point | Behaviour |
 |---|---|---|
-| Password-protected PDF | `InvalidPasswordException` caught explicitly | `422 Unprocessable Entity` |
-| Non-PDF file disguised as PDF | Magic-header `%PDF-` validation | `422 Unprocessable Entity` |
-| SSRF / private IP URL | Blocked before any network call | `422 Unprocessable Entity` |
-| DNS rebinding attack | Hostname resolved and re-validated post-lookup | `422 Unprocessable Entity` |
-| Oversized PDF (>50 MB) | Hard byte limit enforced during streaming | `422 Unprocessable Entity` |
-| Too many pages (>200) | Page-count limit enforced before extraction | `422 Unprocessable Entity` |
-| Excessive redirects (>5) | Hard cap on redirect hops | `422 Unprocessable Entity` |
-| Unreachable URL | Timeout detection | `502 Bad Gateway` |
-| Scanned / image-only PDF | Routed to OCR pipeline via Tess4J | `200 OK` |
-| Mixed-content PDF | Hybrid extraction — native + OCR supplement | `200 OK` |
-| Two-column academic paper | `setSortByPosition(true)` in PDFBox | `200 OK` |
-| Large PDF exceeding token budget | Smart sampling — first 3 + last 2 pages | `200 OK` |
-| Foreign-language PDF | Prompt instructs English output; names preserved | `200 OK` |
-| Malformed AI JSON response | `JsonSanitizer` strips markdown fences | `200 OK` |
-| AI safety block (Gemini) | Detected via `finishReason: SAFETY`; routed to OpenAI | `200 OK` / `422` |
-| AI safety block (both providers) | Mapped to clean error message | `422 Unprocessable Entity` |
-| AI rate limit / 429 | Exponential backoff: 2s → 4s → 8s | Retried automatically |
-| AI auth failure | Fail-fast — no retries | `502 Bad Gateway` |
-| Both AI providers unavailable | Typed exception, clean user message | `502 Bad Gateway` |
-| OpenAI fallback triggered | Seamless provider switch, same response shape | `200 OK` |
+| Password-protected PDF | `PdfInspectionService` — `isEncrypted()` | `422` — actionable user message |
+| SSRF / private IP | `UrlValidator` Stage 1 | `422` — blocked before any network call |
+| DNS rebinding attack | `UrlValidator` DNS pinning | `422` — resolved IP re-validated after DNS lookup |
+| Non-PDF / disguised file | `PdfDownloadService` magic-byte check | `422` — rejected in first 8 KB chunk |
+| Oversized PDF (>50 MB) | `PdfDownloadService` inline stream check | `422` — rejected during download, not after full load |
+| Too many redirects (>5) | `PdfDownloadService` manual redirect handler | `422` — redirect loop protection |
+| PDF exceeds 200 pages | `PdfInspectionService` page count check | `422` — enforced before extraction begins |
+| Scanned / image-only PDF | `PdfExtractionOrchestrator` → OCR | Full Tess4J LSTM pipeline |
+| Low-density native text | `PdfExtractionOrchestrator` → HYBRID | Native first, OCR dominant if below threshold |
+| Multi-column layout (IEEE) | `NativeTextExtractionService` | `setSortByPosition(true)` prevents column interleaving |
+| Large PDF (> 5 pages) | `NativeTextExtractionService` | Smart sampling: first 3 + last 2 pages |
+| OCR page-level failure | `OcrExtractionService` per-page catch | Page skipped, pipeline continues |
+| OCR memory spike | `OcrExtractionService` | `ImageType.GRAY` + `image.flush()` in finally block |
+| Gemini safety block | `GeminiClient` → `AiAnalysisService` | Retried against OpenAI fallback transparently |
+| Both providers safety block | `AiAnalysisService` | `422` — clean user-facing message |
+| Malformed AI JSON | `JsonSanitizer` | Strips markdown fences, extracts first `{}` block |
+| Gemini rate limit (429) | `GeminiClient` retry loop | Exponential backoff 2s → 4s → 8s, then OpenAI fallback |
+| OpenAI rate limit (429) | `OpenAiClient` retry loop | Exponential backoff 2s → 4s → 8s, then `502` |
+| Auth failure (401/403) | Either client | Immediate `502` fail-fast — no retry |
+| Both providers unavailable | `AiAnalysisService` | `502` — service unavailable message |
+| Foreign-language PDF | AI prompt rule | All output fields normalised to English |
+| Google Drive share link | Magic-byte validator | `422` — use `/uc?export=download&id=FILE_ID` format |
 
-> **Google Drive links:** Use the direct download format `https://drive.google.com/uc?export=download&id=FILE_ID`. Standard sharing links (`/file/d/.../view`) return an HTML page and will be rejected by the magic-byte validator.
+> **Google Drive:** Standard sharing links (`/file/d/.../view`) return an HTML confirmation page and are correctly rejected by the magic-byte validator. Use the direct download format: `https://drive.google.com/uc?export=download&id=FILE_ID`
 
----
-
-## Tech Stack
-
-### Backend
-
-| Tool | Version |
-|---|---|
-| Java (Eclipse Temurin) | OpenJDK 21.0.11 |
-| Spring Boot | 3.2.5 |
-| Apache PDFBox | 3.0.2 |
-| Tess4J (Tesseract LSTM) | 5.11.0 |
-| Lombok | 4.0.0 |
-| Maven (system) | 3.9.14 |
-| Maven Wrapper | 3.9.16 |
-| AI — Primary | Google Gemini 2.5 Flash |
-| AI — Fallback | OpenAI GPT-4o-mini |
-
-### Frontend
-
-| Tool | Version |
-|---|---|
-| Angular | 17.3.12 |
-| Angular CLI | 17.3.17 |
-| Angular Material | 17.3.10 |
-| Node.js | 20.20.0 |
-| npm | 10.8.2 |
-| TypeScript | 5.4.5 |
-| RxJS | 7.8.2 |
-
-### DevOps
-
-| Tool | Version |
-|---|---|
-| Docker | 29.1.3 |
-| Docker Compose | 2.40.3 |
-| Git | 2.54.0 |
-| Hosting | Railway |
-
----
+***
 
 ## Running Locally
 
 ### Prerequisites
 
 - Java 21+
-- Node.js 20+ and npm
-- Angular CLI (`npm install -g @angular/cli`)
 - Maven 3.9+
-- Tesseract OCR *(required only if `ocr-enabled: true`)*
+- Tesseract OCR with `eng` language data
+- A Gemini API key — [aistudio.google.com](https://aistudio.google.com/app/apikeys)
+- An OpenAI API key *(optional — used as fallback only)*
 
-**Install Tesseract:**
+### Install Tesseract
 
 ```bash
 # Ubuntu / Debian
@@ -282,73 +308,118 @@ sudo apt-get install -y tesseract-ocr tesseract-ocr-eng
 brew install tesseract
 ```
 
-For Windows, download the installer from the [UB Mannheim releases](https://github.com/UB-Mannheim/tesseract/wiki).
+For Windows, download from [UB Mannheim Tesseract releases](https://github.com/UB-Mannheim/tesseract/wiki) and add to PATH.
 
----
+Verify:
+```bash
+tesseract --version
+```
 
-### Backend
+### Configure Environment Variables
+
+```bash
+# Linux / macOS
+export GEMINI_API_KEY=your_gemini_api_key
+export GPT_API_KEY=your_openai_api_key      # optional
+export AI_PROVIDER=auto                      # auto | gemini | openai
+```
+
+```powershell
+# Windows PowerShell
+$env:GEMINI_API_KEY = "your_gemini_api_key"
+$env:GPT_API_KEY    = "your_openai_api_key"
+$env:AI_PROVIDER    = "auto"
+```
+
+### Start the Server
 
 ```bash
 cd pdf-analyzer-backend
-cp .env.example .env
-```
-
-Edit `.env` and configure your API keys:
-
-```env
-GEMINI_API_KEY=your_gemini_api_key
-GPT_API_KEY=your_openai_api_key
-AI_PROVIDER=auto
-ALLOWED_ORIGINS=http://localhost:4200
-```
-
-Start the server:
-
-```bash
 ./mvnw spring-boot:run
 ```
 
-Backend runs on `http://localhost:8080`.
+Server starts on `http://localhost:8080`. Confirm in the logs:
 
----
-
-### Frontend
-
-```bash
-cd pdf-analyzer-frontend
-npm install
-ng serve
 ```
-
-Frontend runs on `http://localhost:4200`.
-
----
+OCR available — tessdata path: /usr/share/tessdata
+AI provider mode: AUTO
+Started PdfAnalyzerApplication in 4.3 seconds
+```
 
 ### Docker
 
 ```bash
-docker build -t pdf-analyzer-backend ./pdf-analyzer-backend
+docker build -t pdf-analyzer-backend .
 
 docker run -p 8080:8080 \
   -e GEMINI_API_KEY=your_gemini_key \
   -e GPT_API_KEY=your_openai_key \
   -e AI_PROVIDER=auto \
-  -e ALLOWED_ORIGINS=http://localhost:4200 \
   pdf-analyzer-backend
 ```
 
-The Dockerfile uses `eclipse-temurin:21-jre-alpine` as the runtime base and installs Tesseract OCR automatically. Both API keys are injected at runtime and are never baked into the image.
+The Dockerfile uses `eclipse-temurin:21-jre-alpine` as the runtime base and installs Tesseract via `apk`. API keys are injected at runtime and never baked into the image.
 
----
+### Quick Test with curl
+
+```bash
+curl -X POST http://localhost:8080/api/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"pdfUrl":"https://arxiv.org/pdf/1706.03762"}'
+```
+
+**Error path tests:**
+
+| Test | `pdfUrl` | Expected |
+|---|---|---|
+| SSRF block | `http://10.0.0.1/secret` | `422` — private IP range |
+| Non-PDF | `https://www.google.com` | `422` — magic-byte rejection |
+| Password PDF | `https://sample-files.com/downloads/documents/pdf/protected.pdf` | `422` — password protected |
+| Missing field | `{}` (empty body) | `400` — must not be blank |
+| OCR pipeline | `https://solutions.weblite.ca/pdfocrx/scansmpl.pdf` | `200` — OCR strategy, MEDIUM quality |
+
+***
 
 ## Configuration Reference
 
-Full configuration is managed in `application.yaml` with environment variable overrides:
+`src/main/resources/application.yaml`:
 
 ```yaml
+# ── Server ───────────────────────────────────────────────────
 server:
   port: ${PORT:8080}
+  servlet:
+    context-path: /
 
+# ── Spring ───────────────────────────────────────────────────
+spring:
+  config:
+    import: optional:dotenv:.env
+  application:
+    name: pdf-analyzer-backend
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+  task:
+    execution:
+      pool:
+        core-size: 4
+        max-size: 8
+        queue-capacity: 50
+      thread-name-prefix: analysis-
+
+# ── Actuator ─────────────────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+
+# ── PDF Download ──────────────────────────────────────────────
 pdf:
   download:
     connect-timeout-ms: 15000
@@ -360,12 +431,22 @@ pdf:
     max-text-chars: 40000
     low-text-threshold: 100
     ocr-enabled: true
+    chunk-threshold-chars: 35000
+    chunk-size-chars: 12000
+    chunk-overlap-chars: 500
   ocr:
     tessdata-path: ${TESSERACT_DATA_PATH:}
+    max-pages: 10
 
+# ── AI Provider ───────────────────────────────────────────────
 ai:
   provider: ${AI_PROVIDER:auto}   # auto | gemini | openai
+  analysis:
+    chunk-threshold-chars: 12000
+    chunk-size-chars: 8000
+    max-chunks: 8
 
+# ── Gemini ────────────────────────────────────────────────────
 gemini:
   api:
     key: ${GEMINI_API_KEY:}
@@ -374,6 +455,7 @@ gemini:
     max-output-tokens: 1024
     temperature: 0.2
 
+# ── OpenAI (fallback) ─────────────────────────────────────────
 openai:
   api:
     key: ${GPT_API_KEY:}
@@ -382,8 +464,17 @@ openai:
     max-output-tokens: 1024
     temperature: 0.2
 
+# ── CORS ──────────────────────────────────────────────────────
 cors:
   allowed-origins: ${ALLOWED_ORIGINS:http://localhost:4200}
+
+# ── Logging ───────────────────────────────────────────────────
+logging:
+  level:
+    com.pdfanalyzer: INFO
+    org.springframework.web: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
 ```
 
 **Environment Variables:**
@@ -397,8 +488,49 @@ cors:
 | `TESSERACT_DATA_PATH` | If OCR is enabled | Path to Tesseract `tessdata` directory |
 | `PORT` | No (default: `8080`) | Server port |
 
----
+***
+
+## Deployment
+
+Deployed on Railway at [pdf-analyzer-backend-production.up.railway.app](https://pdf-analyzer-backend-production.up.railway.app).
+
+**Railway environment variables:**
+
+```
+GEMINI_API_KEY=your_gemini_key
+GPT_API_KEY=your_openai_key
+AI_PROVIDER=auto
+ALLOWED_ORIGINS=https://pdf-analyzer-frontend-production.up.railway.app
+TESSERACT_DATA_PATH=/usr/share/tessdata
+JAVA_TOOL_OPTIONS=-XX:+UseContainerSupport -XX:MaxRAMPercentage=70.0 -XX:InitialRAMPercentage=40.0 -XX:+UseG1GC -Djava.awt.headless=true -XX:+ExitOnOutOfMemoryError
+PORT=8080
+```
+
+`JAVA_TOOL_OPTIONS` is set as a Railway variable rather than in the Dockerfile so JVM memory flags apply to every deploy without requiring a rebuild.
+
+***
+
+## Test Results
+
+All tests verified against the live deployment.
+
+| Test | Document | Strategy | Result |
+|---|---|---|---|
+| Password-protected PDF | `http://sample-files.com protected.pdf` | — | `422` — `PdfPasswordException` |
+| SSRF / private IP | `http://10.0.0.1/internal` | — | `422` — RFC 1918 blocked at Stage 1 |
+| Non-PDF URL | `https://www.google.com` | — | `422` — magic-byte rejection |
+| Scanned PDF | `https://solutions.weblite.ca/pdfocrx/scansmpl.pdf` | OCR | `200` — Tess4J pipeline, MEDIUM quality |
+| Government letter | EPA sample letter (2015) | OCR | `200` — Tess4J pipeline, MEDIUM quality |
+| Codex paper (35 pages) | `https://arxiv.org/pdf/2107.03374` | NATIVE | `200` — smart sampling, within token budget |
+| Attention Is All You Need (15 pages) | `https://arxiv.org/pdf/1706.03762` | NATIVE | `200` — correct title, authors, summary |
+| GPT-3 paper (75 pages) | `https://arxiv.org/pdf/2005.14165` | NATIVE | `200` — no OOM, smart sampling |
+| Two-column IEEE layout | `https://arxiv.org/pdf/1512.03385` | NATIVE | `200` — no column interleaving |
+| Foreign-language PDF | `https://arxiv.org/pdf/2106.01534` | NATIVE | `200` — all fields in English |
+| Google Drive direct link | `https://drive.google.com/uc?export=download&id=...` | NATIVE | `200` — full pipeline |
+| Archive.org with CDN redirect chain | Archive.org financial statement PDF | NATIVE | `200` — redirect chain followed |
+
+***
 
 ## License
 
-MIT License — see [LICENSE](./LICENSE) for details.
+MIT License — see [LICENSE](../LICENSE) for details.

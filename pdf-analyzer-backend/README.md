@@ -16,21 +16,21 @@ Built with Spring Boot 3.2 · Apache PDFBox · Tess4J · Google Gemini · OpenAI
 
 </div>
 
----
+***
 
 ## Overview
 
 Handles scanned PDFs, password-protected documents, multi-column academic papers, foreign-language content, and hostile inputs — with SSRF protection, dual AI provider fallback, structured JSON output, and consistent typed error handling throughout.
 
-Every PDF is routed through a **6-stage ingestion pipeline** rather than a single extraction path. Each stage fails fast with a structured error response and passes a typed result to the next.
+Every PDF is routed through a **5-stage ingestion pipeline** rather than a single extraction path. Each stage fails fast with a structured error response and passes a typed result to the next. The AI is the **sole classification authority** — the structural pre-classification from Stage 3 is passed only as a soft hint that the AI can override based on document content.
 
----
+***
 
 ## Architecture
 
 ![Backend Architecture](assets/Images/backend_architecture_diagram.png)
 
----
+***
 
 ## Pipeline Stages
 
@@ -53,25 +53,34 @@ Four independent layers are evaluated before any network call is made. A URL mus
 
 - Enforces page count limit (max 200 pages) before any extraction begins
 - Detects password-protected documents via PDFBox `isEncrypted()` and rejects with a clean user message
-- Samples text density across the first 5 pages to inform extraction strategy selection
-- Selects one of three strategies — `NATIVE`, `OCR`, or `HYBRID` — based on character density signals
-- Performs structural pre-classification (Research Paper, Slide Deck, Legal Document, General) to enrich the downstream AI prompt
+- Samples text density across the **first 5 pages** using `PDFTextStripper` (with `setSortByPosition(true)`) to choose an extraction strategy
+- Selects one of three strategies — `NATIVE`, `OCR`, or `HYBRID` — based on character density signals:
+  - `0 chars` → `OCR`
+  - `1–99 chars` → `HYBRID`
+  - `≥ 100 chars` → `NATIVE`
+- Performs a **score-based structural pre-classification** using a wider 10-page sample to produce a soft `DocumentType` hint for Stage 5. Classification priority:
+  1. `RESEARCH_PAPER` — abstract + (references or conclusion)
+  2. `GOVERNMENT_DOCUMENT` — IRS / Treasury / taxpayer signals
+  3. `LEGAL_DOCUMENT` — "whereas", "hereinafter", "party agrees"
+  4. `INVOICE_OR_FORM` — invoice/billing keywords, page count ≤ 25 (guard against IRS publications being misclassified)
+  5. `SLIDE_DECK` — page count ≤ 30 and low text density (< 500 chars)
+  6. `UNKNOWN` — passes to AI without a hint
 
-### Stage 4 — Extraction
+> This hint is passed as a structural suggestion only. The AI is explicitly instructed to override it if the document content indicates a different type.
+
+### Stage 4 — Text Extraction
 
 Strategy is determined by Stage 3 and executed by the `PdfExtractionOrchestrator`.
 
-**NATIVE** — `PDFTextStripper` with `setSortByPosition(true)` for layout-aware extraction. Correctly handles multi-column IEEE papers and slide decks without column interleaving artifacts. For documents longer than 5 pages, smart sampling extracts the first 3 pages (title, abstract, introduction) and the last 2 pages (conclusion, references), keeping text within the AI token budget. Documents exceeding the 35,000-character chunk threshold are split into 12,000-character chunks with 500-character overlaps before AI analysis.
+**NATIVE** — `PDFTextStripper` with `setSortByPosition(true)` for layout-aware extraction. Correctly handles multi-column IEEE papers and slide decks without column interleaving artifacts. For documents longer than 5 pages, smart sampling extracts the **first 3 pages** (title, abstract, introduction) and the **last 2 pages** (conclusion, references), keeping text within the AI token budget. Documents exceeding the 35,000-character chunk threshold are split into 12,000-character chunks with 500-character overlaps before AI analysis.
 
 **OCR** — `PDFRenderer` renders each page as a `BufferedImage` at 200 DPI using `ImageType.GRAY` (lower memory than RGB). Passed to Tess4J with `OEM_LSTM_ONLY` and `PSM_AUTO`. `image.flush()` is called in a `finally` block after each page to release native graphics memory immediately. Capped at 10 pages per document. Individual page failures are logged and skipped — the pipeline does not abort.
 
 **HYBRID** — Attempts native extraction first. If the character count is above zero but below the quality threshold (100 chars), OCR runs as the dominant path. The higher-quality result is passed to Stage 5.
 
-### Stage 5 — Document Classification
+### Stage 5 — AI Analysis
 
-Finalises the document type using extracted text combined with structural signals from Stage 3. The resolved type is injected into the AI prompt as a type-specific context hint, improving output relevance and field accuracy.
-
-### Stage 6 — AI Analysis
+The AI is the **single classification authority** for `documentType`. The structural hint from Stage 3 is injected as a soft suggestion in the format `"RESEARCH_PAPER (structural heuristic — override from content if incorrect)"`. The AI determines the final document type, title, authors, summary, key takeaway, and quality score from actual content.
 
 - **Primary:** Google Gemini 2.5 Flash — structured JSON output enforced via schema prompt
 - **Fallback:** OpenAI GPT-4o-mini — activated automatically on Gemini failure
@@ -97,7 +106,7 @@ AiAnalysisService
 
 Both providers receive the same prompt and produce an identical `AnalysisResult` — the calling layer is unaware of which provider responded.
 
----
+***
 
 ## Tech Stack
 
@@ -115,7 +124,7 @@ Both providers receive the same prompt and produce an identical `AnalysisResult`
 | Containerization | Docker | 29.1.3 |
 | Deployment | Railway | — |
 
----
+***
 
 ## API Reference
 
@@ -162,7 +171,7 @@ Both providers receive the same prompt and produce an identical `AnalysisResult`
 
 ```typescript
 {
-  documentType:       string;   // "Research Paper" | "Slide Deck / Presentation" | "Legal Document" | "General Document"
+  documentType:       string;   // AI-determined: "Research Paper" | "Slide Deck / Presentation" | "Legal Document" | "General Document" | etc.
   title:              string;
   authors:            string;
   summary:            string;   // Minimum 3 sentences
@@ -173,7 +182,7 @@ Both providers receive the same prompt and produce an identical `AnalysisResult`
 }
 ```
 
----
+***
 
 ## Edge Cases Handled
 
@@ -193,6 +202,7 @@ Both providers receive the same prompt and produce an identical `AnalysisResult`
 | Text exceeding chunk threshold | `AiAnalysisService` chunking | Split into 8,000-char chunks, max 8 chunks |
 | OCR page-level failure | `OcrExtractionService` per-page catch | Page skipped, pipeline continues |
 | OCR memory spike | `OcrExtractionService` | `ImageType.GRAY` + `image.flush()` in finally block |
+| Structural type hint wrong | `AiAnalysisService` prompt | AI overrides heuristic classification from content |
 | Gemini safety block | `GeminiClient` → `AiAnalysisService` | Retried against OpenAI fallback transparently |
 | Both providers safety block | `AiAnalysisService` | `422` — clean user-facing message |
 | Malformed AI JSON | `JsonSanitizer` | Strips markdown fences, extracts first `{}` block |
@@ -205,7 +215,7 @@ Both providers receive the same prompt and produce an identical `AnalysisResult`
 
 > **Google Drive:** Standard sharing links (`/file/d/.../view`) return an HTML confirmation page and are correctly rejected by the magic-byte validator. Use the direct download format: `https://drive.google.com/uc?export=download&id=FILE_ID`
 
----
+***
 
 ## Running Locally
 
@@ -297,7 +307,7 @@ curl -X POST http://localhost:8080/api/analyze \
 | Missing field | `{}` (empty body) | `400` — must not be blank |
 | OCR pipeline | `https://solutions.weblite.ca/pdfocrx/scansmpl.pdf` | `200` — OCR strategy, MEDIUM quality |
 
----
+***
 
 ## Configuration Reference
 
@@ -407,7 +417,7 @@ logging:
 | `TESSERACT_DATA_PATH` | If OCR is enabled | Path to Tesseract `tessdata` directory |
 | `PORT` | No (default: `8080`) | Server port |
 
----
+***
 
 ## Deployment
 
@@ -427,7 +437,7 @@ PORT=8080
 
 `JAVA_TOOL_OPTIONS` is set as a Railway variable rather than in the Dockerfile so JVM memory flags apply to every deploy without requiring a rebuild.
 
----
+***
 
 ## Test Results
 
@@ -439,16 +449,16 @@ All tests verified against the live deployment.
 | SSRF / private IP | `http://10.0.0.1/internal` | — | `422` — RFC 1918 blocked at Stage 1 |
 | Non-PDF URL | `https://www.google.com` | — | `422` — magic-byte rejection |
 | Scanned PDF | `https://solutions.weblite.ca/pdfocrx/scansmpl.pdf` | OCR | `200` — Tess4J pipeline, MEDIUM quality |
-| Scanned PDF | `https://19january2021snapshot.epa.gov/sites/static/files/2016-02/documents/epa_sample_letter_sent_to_commissioners_dated_february_29_2015.pdf` | OCR | `200` — Tess4J pipeline, MEDIUM quality |
+| Scanned PDF | `https://19january2021snapshot.epa.gov/.../epa_sample_letter.pdf` | OCR | `200` — Tess4J pipeline, MEDIUM quality |
 | Codex paper (35 pages) | `https://arxiv.org/pdf/2107.03374` | NATIVE | `200` — smart sampling, within token budget |
 | Attention Is All You Need (15 pages) | `https://arxiv.org/pdf/1706.03762` | NATIVE | `200` — correct title, authors, summary |
 | GPT-3 paper (75 pages) | `https://arxiv.org/pdf/2005.14165` | NATIVE | `200` — no OOM, smart sampling |
 | Two-column IEEE layout | `https://arxiv.org/pdf/1512.03385` | NATIVE | `200` — no column interleaving |
 | Foreign-language PDF | `https://arxiv.org/pdf/2106.01534` | NATIVE | `200` — all fields in English |
 | Google Drive direct link | `https://drive.google.com/uc?export=download&id=19GGhHwVx-q3NgbEUMbKqCHJgPvA7OzcU` | NATIVE | `200` — full pipeline |
-| Archive.org historical doc | `https://archive.org/download/httpswww.ijtsrd.commanagementaccounting-and-finance45154a-study-on-financial-sta/223%20A%20Study%20on%20financial%20statement%20analysis%20of%20Ultratech%20Cement%20limited.pdf` | NATIVE | `200` — CDN redirect chain followed |
+| Archive.org historical doc | `https://archive.org/download/...` | NATIVE | `200` — CDN redirect chain followed |
 
----
+***
 
 ## License
 
