@@ -435,17 +435,18 @@ All tests verified against the live deployment.
 
 | Test | Document | Strategy | Result |
 |---|---|---|---|
-| Password-protected PDF | `sample-files.com protected.pdf` | — | `422` — `PdfPasswordException` |
+| Password-protected PDF | `http://sample-files.com protected.pdf` | — | `422` — `PdfPasswordException` |
 | SSRF / private IP | `http://10.0.0.1/internal` | — | `422` — RFC 1918 blocked at Stage 1 |
 | Non-PDF URL | `https://www.google.com` | — | `422` — magic-byte rejection |
-| Scanned PDF | `weblite.ca scansmpl.pdf` | OCR | `200` — Tess4J pipeline, MEDIUM quality |
-| Codex paper (35 pages) | `arxiv.org/pdf/2107.03374` | NATIVE | `200` — smart sampling, within token budget |
-| Attention Is All You Need (15 pages) | `arxiv.org/pdf/1706.03762` | NATIVE | `200` — correct title, authors, summary |
-| GPT-3 paper (75 pages) | `arxiv.org/pdf/2005.14165` | NATIVE | `200` — no OOM, smart sampling |
-| Two-column IEEE layout | `arxiv.org/pdf/1512.03385` | NATIVE | `200` — no column interleaving |
-| Foreign-language PDF | `arxiv.org/pdf/2106.01534` | NATIVE | `200` — all fields in English |
-| Google Drive direct link | `/uc?export=download&id=...` | NATIVE | `200` — full pipeline |
-| Archive.org historical doc | `archive.org analog thesis` | NATIVE | `200` — CDN redirect chain followed |
+| Scanned PDF | `https://solutions.weblite.ca/pdfocrx/scansmpl.pdf` | OCR | `200` — Tess4J pipeline, MEDIUM quality |
+| Scanned PDF | `https://19january2021snapshot.epa.gov/sites/static/files/2016-02/documents/epa_sample_letter_sent_to_commissioners_dated_february_29_2015.pdf` | OCR | `200` — Tess4J pipeline, MEDIUM quality |
+| Codex paper (35 pages) | `https://arxiv.org/pdf/2107.03374` | NATIVE | `200` — smart sampling, within token budget |
+| Attention Is All You Need (15 pages) | `https://arxiv.org/pdf/1706.03762` | NATIVE | `200` — correct title, authors, summary |
+| GPT-3 paper (75 pages) | `https://arxiv.org/pdf/2005.14165` | NATIVE | `200` — no OOM, smart sampling |
+| Two-column IEEE layout | `https://arxiv.org/pdf/1512.03385` | NATIVE | `200` — no column interleaving |
+| Foreign-language PDF | `https://arxiv.org/pdf/2106.01534` | NATIVE | `200` — all fields in English |
+| Google Drive direct link | `https://drive.google.com/uc?export=download&id=19GGhHwVx-q3NgbEUMbKqCHJgPvA7OzcU` | NATIVE | `200` — full pipeline |
+| Archive.org historical doc | `https://archive.org/download/httpswww.ijtsrd.commanagementaccounting-and-finance45154a-study-on-financial-sta/223%20A%20Study%20on%20financial%20statement%20analysis%20of%20Ultratech%20Cement%20limited.pdf` | NATIVE | `200` — CDN redirect chain followed |
 
 ---
 
