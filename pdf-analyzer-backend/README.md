@@ -28,7 +28,7 @@ Every PDF is routed through a **6-stage ingestion pipeline** rather than a singl
 
 ## Architecture
 
-![Backend Architecture Diagram](assets/Images/Backend_architecture_diagram.png)
+![Backend Architecture Diagram](assets/Images/backend_architecture_diagram.png)
 
 ---
 
