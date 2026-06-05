@@ -3,6 +3,13 @@ server:
   port: ${PORT:8080}
   servlet:
     context-path: /
+  tomcat:
+    threads:
+      max: 10          # reduced from default 200 — saves ~50MB thread stack
+      min-spare: 3
+    max-connections: 100
+    accept-count: 20
+
 
 # ── Spring ───────────────────────────────────────────────────
 spring:
@@ -17,10 +24,11 @@ spring:
   task:
     execution:
       pool:
-        core-size: 4
-        max-size: 8
-        queue-capacity: 50
+        core-size: 2       # reduced from 4 — saves thread memory
+        max-size: 4        # reduced from 8
+        queue-capacity: 20 # reduced from 50
       thread-name-prefix: analysis-
+
 
 # ── Actuator ─────────────────────────────────────────────────
 management:
@@ -30,7 +38,8 @@ management:
         include: health,info
   endpoint:
     health:
-      show-details: never        # ← Fixed: was when-authorized (needs Spring Security)
+      show-details: never
+
 
 # ── PDF Download ──────────────────────────────────────────────
 pdf:
@@ -49,7 +58,8 @@ pdf:
     chunk-overlap-chars: 500
   ocr:
     tessdata-path: ${TESSERACT_DATA_PATH:}
-    max-pages: 10
+    max-pages: 5           # reduced from 10 — OCR is the biggest memory spike
+
 
 # ── AI Provider ───────────────────────────────────────────────
 ai:
@@ -58,6 +68,7 @@ ai:
     chunk-threshold-chars: 12000
     chunk-size-chars: 8000
     max-chunks: 8
+
 
 # ── Gemini ────────────────────────────────────────────────────
 gemini:
@@ -68,6 +79,7 @@ gemini:
     max-output-tokens: 1024
     temperature: 0.2
 
+
 # ── OpenAI (fallback) ─────────────────────────────────────────
 openai:
   api:
@@ -77,9 +89,11 @@ openai:
     max-output-tokens: 1024
     temperature: 0.2
 
+
 # ── CORS ──────────────────────────────────────────────────────
 cors:
   allowed-origins: ${ALLOWED_ORIGINS:http://localhost:4200}
+
 
 # ── Logging ───────────────────────────────────────────────────
 logging:
