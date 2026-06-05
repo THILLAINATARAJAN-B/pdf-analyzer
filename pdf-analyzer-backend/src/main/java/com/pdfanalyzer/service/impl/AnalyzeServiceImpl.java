@@ -5,7 +5,6 @@ import com.pdfanalyzer.dto.response.AnalysisResult;
 import com.pdfanalyzer.model.PdfInspectionResult;
 import com.pdfanalyzer.service.AiAnalysisService;
 import com.pdfanalyzer.service.AnalyzeService;
-import com.pdfanalyzer.service.DocumentClassificationService;
 import com.pdfanalyzer.service.PdfDownloadService;
 import com.pdfanalyzer.service.PdfExtractionOrchestrator;
 import com.pdfanalyzer.service.PdfInspectionService;
@@ -23,18 +22,17 @@ public class AnalyzeServiceImpl implements AnalyzeService {
     private final PdfDownloadService pdfDownloadService;
     private final PdfInspectionService pdfInspectionService;
     private final PdfExtractionOrchestrator extractionOrchestrator;
-    private final DocumentClassificationService classificationService;
     private final AiAnalysisService aiAnalysisService;
+    // ✂ removed: DocumentClassificationService — AI is the single classification authority
 
     /**
-     * 6-stage document ingestion pipeline.
+     * 5-stage document ingestion pipeline.
      *
-     * 1. URL Validation    — SSRF protection + DNS pinning
-     * 2. Safe Download     — chunked stream, byte limit, magic-byte check
-     * 3. PDF Inspection    — structure analysis, strategy decision
-     * 4. Text Extraction   — NATIVE / OCR / HYBRID routing
-     * 5. Classification    — document type hint for prompt enrichment
-     * 6. AI Analysis       — structured Gemini/OpenAI output with retry
+     * 1. URL Validation  — SSRF protection + DNS pinning
+     * 2. Safe Download   — chunked stream, byte limit, magic-byte check
+     * 3. PDF Inspection  — structure analysis + extraction strategy + soft type hint
+     * 4. Text Extraction — NATIVE / OCR / HYBRID routing
+     * 5. AI Analysis     — single classification authority + structured output with retry
      */
     @Override
     public AnalysisResult analyze(AnalyzeRequest request) {
@@ -52,7 +50,7 @@ public class AnalyzeServiceImpl implements AnalyzeService {
         // Stage 3 — PDF Structural Inspection
         log.info("[Stage 3] Inspecting PDF structure");
         PdfInspectionResult inspection = pdfInspectionService.inspect(pdfBytes);
-        log.info("[Stage 3] pages={}, strategy={}, type={}",
+        log.info("[Stage 3] pages={}, strategy={}, structuralHint={}",
                 inspection.getTotalPages(),
                 inspection.getRecommendedStrategy(),
                 inspection.getPreclassifiedType());
@@ -63,16 +61,14 @@ public class AnalyzeServiceImpl implements AnalyzeService {
         String extractedText = extractionOrchestrator.extract(pdfBytes, inspection);
         log.info("[Stage 4] Extracted {} chars", extractedText.length());
 
-        // Stage 5 — Document Classification
-        log.info("[Stage 5] Classifying document");
-        String documentTypeHint = classificationService.classify(extractedText, inspection);
-        log.info("[Stage 5] Document type: {}", documentTypeHint);
+        // Stage 5 — AI Analysis (sole classification authority)
+        log.info("[Stage 5] Sending to AI — structural hint: {}",
+                inspection.getPreclassifiedType());
+        AnalysisResult result = aiAnalysisService.analyze(
+                extractedText,
+                inspection.getPreclassifiedType().name()   // ← raw enum name, hint only
+        );
 
-        // Stage 6 — AI Analysis
-        log.info("[Stage 6] Sending to AI analysis");
-        AnalysisResult result = aiAnalysisService.analyze(extractedText, documentTypeHint);
-
-        // Attach lightweight pipeline metadata
         result.setExtractionStrategy(inspection.getRecommendedStrategy().name());
         result.setTotalPages(inspection.getTotalPages());
 

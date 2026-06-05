@@ -7,8 +7,11 @@ import com.pdfanalyzer.config.GeminiConfig;
 import com.pdfanalyzer.dto.response.AnalysisResult;
 import com.pdfanalyzer.exception.AiSafetyException;
 import com.pdfanalyzer.exception.AiServiceException;
+import com.pdfanalyzer.util.AnalysisResultValidator;
 import com.pdfanalyzer.util.ApiKeyDiagnostics;
 import com.pdfanalyzer.util.JsonSanitizer;
+import com.pdfanalyzer.util.PromptBuilder;
+import com.pdfanalyzer.util.RetryUtils;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,17 +32,11 @@ import java.util.Map;
 /**
  * HTTP client for the Gemini generative AI API.
  *
- * Features:
- * - Startup configuration verification with masked key logging
- * - Gemini Structured Output mode (responseMimeType + responseSchema)
- * - Schema-based output with all required fields enforced at API level
+ * - Structured Output mode (responseMimeType + responseSchema) — JSON enforced at API level
  * - Exponential backoff retry (2s → 4s → 8s) for transient failures
- * - Fail-fast on auth (401/403), not-found (404), and bad-request (400) errors
+ * - Fail-fast on auth (401/403), model-not-found (404), bad-request (400)
  * - Safety filter detection (promptFeedback.blockReason + finishReason=SAFETY)
- * - Foreign-language normalization rule in prompt
- * - documentType forced to match classification hint
- * - JsonSanitizer as secondary fallback for fence-wrapped responses
- * - summarizeChunk() + summarizeText() for chunk summarization pipeline (Level 2)
+ * - summarizeChunk() + summarizeText() for large document pipeline (Level 2)
  */
 @Slf4j
 @Component
@@ -50,6 +47,8 @@ public class GeminiClient {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final JsonSanitizer jsonSanitizer;
+    private final PromptBuilder promptBuilder;
+    private final AnalysisResultValidator resultValidator;
 
     private static final int MAX_RETRIES = 3;
     private static final long BASE_BACKOFF_MS = 2000;
@@ -66,24 +65,15 @@ public class GeminiClient {
         log.info("=================================================");
     }
 
-    /**
-     * Returns true if the API key is configured and not an unresolved placeholder.
-     * Used by health checks or pre-flight validation.
-     */
     public boolean isConfigured() {
         String key = geminiConfig.getApiKey();
         return key != null && !key.isBlank() && !key.startsWith("${");
     }
 
-    // ── Main Analysis Entry Point ─────────────────────────────────────────────
+    // ── Main Analysis ─────────────────────────────────────────────────────────
 
-    /**
-     * Sends extracted PDF text to Gemini for structured analysis.
-     * Retries up to MAX_RETRIES times with exponential backoff.
-     * Fails fast on authentication, authorization, and model-not-found errors.
-     */
     public AnalysisResult analyze(String pdfText, String documentTypeHint) {
-        String prompt = buildPrompt(pdfText, documentTypeHint);
+        String prompt = promptBuilder.buildAnalysisPrompt(pdfText, documentTypeHint);
         String requestBody = buildStructuredRequestBody(prompt);
         AiServiceException lastException = null;
 
@@ -94,46 +84,39 @@ public class GeminiClient {
                 return parseGeminiResponse(rawResponse);
 
             } catch (AiSafetyException ex) {
-                // Safety blocks are final — do not retry
-                throw ex;
+                throw ex; // safety blocks are final — never retry
 
             } catch (AiServiceException ex) {
                 lastException = ex;
 
-                // Fatal errors that must not be retried
                 boolean isFatal = ex.getMessage().contains("authentication")
                         || ex.getMessage().contains("not found")
                         || ex.getMessage().contains("API key")
                         || ex.getMessage().contains("403")
                         || ex.getMessage().contains("malformed");
                 if (isFatal) {
-                    log.error("Fatal AI service error — aborting retries: {}", ex.getMessage());
+                    log.error("Fatal Gemini error — aborting retries: {}", ex.getMessage());
                     throw ex;
                 }
 
                 if (attempt == MAX_RETRIES) break;
 
-                // Exponential backoff: 2s, 4s, 8s
                 long waitMs = BASE_BACKOFF_MS * (long) Math.pow(2, attempt - 1);
-                log.warn("Gemini attempt {} failed: {}. Retrying in {}ms...",
-                        attempt, ex.getMessage(), waitMs);
-                sleep(waitMs);
+                log.warn("Gemini attempt {} failed: {}. Retrying in {}ms...", attempt, ex.getMessage(), waitMs);
+                RetryUtils.sleep(waitMs);
             }
         }
 
         throw lastException != null
                 ? lastException
-                : new AiServiceException("AI analysis failed after all retry attempts.");
+                : new AiServiceException("Gemini analysis failed after all retry attempts.");
     }
 
     // ── Level 2: Chunk Summarization ──────────────────────────────────────────
 
     /**
      * Summarizes a single text chunk as plain prose.
-     * Used by ChunkSummarizationService for large document processing.
-     *
-     * Deliberately NOT using structured output mode here —
-     * chunk summaries are intermediate prose, not final JSON.
+     * Used by ChunkSummarizationService — deliberately NOT structured output.
      */
     public String summarizeChunk(String chunkText, String documentTypeHint,
                                   int chunkIndex, int totalChunks) {
@@ -153,19 +136,12 @@ public class GeminiClient {
                 ---
                 """.formatted(chunkIndex, totalChunks, documentTypeHint, chunkText);
 
-        String requestBody = buildPlainTextRequestBody(prompt);
-        String rawResponse = callGeminiApi(requestBody);
-        return extractTextFromResponse(rawResponse);
+        return extractTextFromResponse(callGeminiApi(buildPlainTextRequestBody(prompt)));
     }
 
-    /**
-     * Lightweight text-only call for general summarization tasks.
-     * Used when callers need a plain-text Gemini response without structured output.
-     */
+    /** Plain-text Gemini call — used for general summarization tasks. */
     public String summarizeText(String prompt) {
-        String requestBody = buildPlainTextRequestBody(prompt);
-        String rawResponse = callGeminiApi(requestBody);
-        return extractTextFromResponse(rawResponse);
+        return extractTextFromResponse(callGeminiApi(buildPlainTextRequestBody(prompt)));
     }
 
     // ── HTTP Call ─────────────────────────────────────────────────────────────
@@ -180,62 +156,46 @@ public class GeminiClient {
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setAccept(List.of(MediaType.APPLICATION_JSON));
 
-        HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
-
         try {
-            ResponseEntity<String> response = restTemplate.postForEntity(url, entity, String.class);
+            ResponseEntity<String> response = restTemplate.postForEntity(
+                    url, new HttpEntity<>(requestBody, headers), String.class);
             String body = response.getBody();
 
             if (!response.getStatusCode().is2xxSuccessful() || body == null || body.isBlank()) {
-                throw new AiServiceException(
-                        "Gemini API returned an empty or non-2xx response.");
+                throw new AiServiceException("Gemini returned an empty or non-2xx response.");
             }
-
             return body;
 
         } catch (HttpClientErrorException ex) {
-            log.error("Gemini client error — status={}, body={}",
-                    ex.getStatusCode(), ex.getResponseBodyAsString());
+            log.error("Gemini client error — status={}, body={}", ex.getStatusCode(), ex.getResponseBodyAsString());
 
             if (ex.getStatusCode() == HttpStatus.TOO_MANY_REQUESTS) {
-                throw new AiServiceException(
-                        "AI service rate limit exceeded. Please wait and retry.");
+                throw new AiServiceException("AI service rate limit exceeded. Please wait and retry.");
             }
             if (ex.getStatusCode() == HttpStatus.UNAUTHORIZED) {
-                throw new AiServiceException(
-                        "AI service authentication failed. Verify GEMINI_API_KEY environment variable.");
+                throw new AiServiceException("Gemini authentication failed. Verify GEMINI_API_KEY.");
             }
             if (ex.getStatusCode() == HttpStatus.FORBIDDEN) {
-                throw new AiServiceException(
-                        "AI service authentication failed (403). "
-                                + "Verify GEMINI_API_KEY is valid and billing is enabled.");
+                throw new AiServiceException("Gemini authentication failed (403). Verify GEMINI_API_KEY is valid and billing is enabled.");
             }
             if (ex.getStatusCode() == HttpStatus.NOT_FOUND) {
-                throw new AiServiceException(
-                        "AI model not found. Check configured model name: "
-                                + geminiConfig.getModel());
+                throw new AiServiceException("Gemini model not found: " + geminiConfig.getModel());
             }
             if (ex.getStatusCode() == HttpStatus.BAD_REQUEST) {
-                throw new AiServiceException(
-                        "AI service rejected the request. "
-                                + "The document text may be too long or malformed.");
+                throw new AiServiceException("Gemini rejected the request. Document text may be too long or malformed.");
             }
-
-            throw new AiServiceException(
-                    "AI service request failed with status: " + ex.getStatusCode());
+            throw new AiServiceException("Gemini request failed with status: " + ex.getStatusCode());
 
         } catch (HttpServerErrorException ex) {
             log.error("Gemini server error — status={}", ex.getStatusCode());
-            throw new AiServiceException(
-                    "AI service is temporarily unavailable. Please retry.");
+            throw new AiServiceException("Gemini is temporarily unavailable. Please retry.");
 
         } catch (AiServiceException ex) {
             throw ex;
 
         } catch (Exception ex) {
-            log.error("Unexpected Gemini call failure [{}]: {}",
-                    ex.getClass().getSimpleName(), ex.getMessage());
-            throw new AiServiceException("Unexpected error contacting AI service.");
+            log.error("Unexpected Gemini failure [{}]: {}", ex.getClass().getSimpleName(), ex.getMessage());
+            throw new AiServiceException("Unexpected error contacting Gemini.");
         }
     }
 
@@ -245,19 +205,17 @@ public class GeminiClient {
         try {
             JsonNode root = objectMapper.readTree(rawResponse);
 
-            // API-level error block in response body
             if (root.has("error")) {
-                String apiError = root.path("error").path("message").asText("Unknown AI error");
-                log.error("Gemini API-level error: {}", apiError);
-                throw new AiServiceException("AI service error: " + apiError);
+                String msg = root.path("error").path("message").asText("Unknown error");
+                log.error("Gemini API-level error: {}", msg);
+                throw new AiServiceException("Gemini error: " + msg);
             }
 
             JsonNode candidates = root.path("candidates");
             if (!candidates.isArray() || candidates.isEmpty()) {
-                // Check promptFeedback for safety block reason
-                JsonNode promptFeedback = root.path("promptFeedback");
-                if (!promptFeedback.isMissingNode()) {
-                    String blockReason = promptFeedback.path("blockReason").asText("");
+                JsonNode feedback = root.path("promptFeedback");
+                if (!feedback.isMissingNode()) {
+                    String blockReason = feedback.path("blockReason").asText("");
                     if (!blockReason.isBlank()) {
                         log.warn("Gemini safety block — reason: {}", blockReason);
                         throw new AiSafetyException(
@@ -265,143 +223,42 @@ public class GeminiClient {
                     }
                 }
                 log.error("Gemini response has no candidates. Raw: {}", rawResponse);
-                throw new AiServiceException("AI returned no analysis candidates.");
+                throw new AiServiceException("Gemini returned no analysis candidates.");
             }
 
             JsonNode firstCandidate = candidates.get(0);
-
-            // Check finishReason for in-response safety filter
-            String finishReason = firstCandidate.path("finishReason").asText("");
-            if ("SAFETY".equalsIgnoreCase(finishReason)) {
+            if ("SAFETY".equalsIgnoreCase(firstCandidate.path("finishReason").asText(""))) {
                 log.warn("Gemini response blocked — finishReason=SAFETY");
                 throw new AiSafetyException(
                         "This document could not be analyzed due to AI safety policy restrictions.");
             }
 
             JsonNode parts = firstCandidate.path("content").path("parts");
-
             if (!parts.isArray() || parts.isEmpty()) {
-                throw new AiServiceException("AI response parts array is empty.");
+                throw new AiServiceException("Gemini response parts array is empty.");
             }
 
             String textContent = parts.get(0).path("text").asText();
             if (textContent == null || textContent.isBlank()) {
-                throw new AiServiceException("AI returned empty text content.");
+                throw new AiServiceException("Gemini returned empty text content.");
             }
 
-            String cleanJson = jsonSanitizer.extractJson(textContent);
-            AnalysisResult result = objectMapper.readValue(cleanJson, AnalysisResult.class);
-            validateResult(result);
+            AnalysisResult result = objectMapper.readValue(
+                    jsonSanitizer.extractJson(textContent), AnalysisResult.class);
+            resultValidator.validate(result, "Gemini");
             return result;
 
         } catch (AiSafetyException | AiServiceException ex) {
             throw ex;
         } catch (JsonProcessingException ex) {
-            log.error("JSON parse failure from Gemini response: {}", ex.getMessage());
-            throw new AiServiceException(
-                    "AI returned a malformed JSON response. Please retry.");
+            log.error("JSON parse failure from Gemini: {}", ex.getMessage());
+            throw new AiServiceException("Gemini returned a malformed JSON response. Please retry.");
         }
     }
-
-    // ── Result Validation ─────────────────────────────────────────────────────
-
-    private void validateResult(AnalysisResult result) {
-        if (result == null) {
-            throw new AiServiceException("AI returned a null analysis result.");
-        }
-        if (isBlankOrDefault(result.getTitle()) && isBlankOrDefault(result.getSummary())) {
-            throw new AiServiceException(
-                    "AI returned an incomplete analysis — both title and summary are missing.");
-        }
-    }
-
-    private boolean isBlankOrDefault(String s) {
-        return s == null
-                || s.isBlank()
-                || s.equalsIgnoreCase("N/A")
-                || s.equalsIgnoreCase("null")
-                || s.equalsIgnoreCase("Not Found");
-    }
-
-    // ── Prompt Builder ────────────────────────────────────────────────────────
-
-    /**
-     * Builds the analysis prompt with document-type-aware instructions.
-     *
-     * Key rules injected:
-     * 1. documentType MUST match the provided hint (fixes "General Document" regression).
-     * 2. All output values MUST be in English (foreign-language normalization).
-     * 3. summary requires minimum 3 sentences.
-     * 4. keyTakeaway must be specific and substantive.
-     */
-    private String buildPrompt(String pdfText, String documentTypeHint) {
-    return """
-            You are a professional document analyst specializing in structured data extraction.
-
-            STRUCTURAL PRE-CLASSIFICATION (heuristic — may be inaccurate): %s
-
-            Analyze the document text below and return ONLY a valid JSON object.
-            No markdown. No code fences. No explanation. No preamble.
-
-            Required JSON structure:
-            {
-              "documentType": "<determined from content — see rules below>",
-              "title": "<full title of the document>",
-              "authors": "<Author One, Author Two — or 'Not Found' if absent>",
-              "summary": "<Sentence one. Sentence two. Sentence three. Minimum three sentences.>",
-              "keyTakeaway": "<The single most important insight from this document.>",
-              "qualityScore": "<HIGH | MEDIUM | LOW>"
-            }
-
-            DOCUMENT TYPE RULES:
-            - Determine documentType from TEXT CONTENT, NOT from the structural hint above.
-            - The structural hint uses page count and text density — it is often wrong.
-            - Override it confidently if the content clearly indicates a different type.
-            - Valid values (pick the single best match):
-                "Research Paper"             — academic study, methodology, citations, abstract
-                "Academic Thesis"            — dissertation, university submission, chapters
-                "Slide Deck / Presentation"  — bullet points, minimal prose, slide titles
-                "Technical Report"           — engineering specs, system documentation
-                "Government Document"        — policy, legislation, federal/state reports
-                "Legal Document"             — contracts, agreements, court filings
-                "Financial Report"           — earnings, balance sheets, annual reports
-                "General Document"           — does not fit any specific category above
-                "News Article"               — journalistic writing, dateline, publication
-                "Book Chapter"               — narrative prose, chapter structure
-
-            QUALITY SCORE RULES:
-            - "HIGH"   — clean native text, all fields extractable with confidence
-            - "MEDIUM" — OCR text or partial extraction, meaning is clear but imperfect
-            - "LOW"    — very short, heavily garbled, or insufficient to summarize reliably
-
-            STRICT OUTPUT RULES:
-            - Output ONLY the JSON object. Nothing before or after it.
-            - ALL output values MUST be in English regardless of source language.
-              Preserve proper nouns, technical terms, and titles as-is.
-            - All values must be non-empty strings.
-            - Use "Not Found" only if a field genuinely cannot be determined.
-            - summary must contain at least 3 complete, substantive sentences.
-            - keyTakeaway must be specific to this document — not generic filler.
-            - title: Extract ONLY the exact title as printed in the document.
-              Do NOT paraphrase, infer, or rewrite the title.
-              If not found, return "Not Found".
-            - authors: If more than 5 authors, return first 3 followed by "et al."
-              Do NOT return "Not Found" for papers that visibly list authors.
-
-            Document text:
-            ---
-            %s
-            ---
-            """.formatted(documentTypeHint, pdfText);
-}
 
     // ── Request Body Builders ─────────────────────────────────────────────────
 
-    /**
-     * Structured request body using Gemini's schema-based output.
-     * responseMimeType + responseSchema enforces JSON at the API level.
-     * JsonSanitizer in parseGeminiResponse() is the secondary fallback.
-     */
+    /** Structured output request — JSON enforced at API level via responseSchema. */
     private String buildStructuredRequestBody(String prompt) {
         try {
             Map<String, Object> generationConfig = new LinkedHashMap<>();
@@ -409,18 +266,13 @@ public class GeminiClient {
             generationConfig.put("temperature", geminiConfig.getTemperature());
             generationConfig.put("responseMimeType", "application/json");
             generationConfig.put("responseSchema", buildAnalysisResultSchema());
-
             return buildRequestBodyWithConfig(prompt, generationConfig);
-
         } catch (JsonProcessingException ex) {
-            throw new AiServiceException("Failed to build AI request payload.");
+            throw new AiServiceException("Failed to build Gemini request payload.");
         }
     }
 
-    /**
-     * Plain-text request body for chunk summarization tasks.
-     * Lower token budget (512) since summaries are intermediate, not final.
-     */
+    /** Plain-text request — used for chunk summarization (lower token budget). */
     private String buildPlainTextRequestBody(String prompt) {
         try {
             Map<String, Object> generationConfig = new LinkedHashMap<>();
@@ -428,83 +280,47 @@ public class GeminiClient {
             generationConfig.put("temperature", 0.1);
             return buildRequestBodyWithConfig(prompt, generationConfig);
         } catch (JsonProcessingException ex) {
-            throw new AiServiceException("Failed to build AI summary request payload.");
+            throw new AiServiceException("Failed to build Gemini summary request payload.");
         }
     }
 
-    private String buildRequestBodyWithConfig(String prompt,
-                                               Map<String, Object> generationConfig)
+    private String buildRequestBodyWithConfig(String prompt, Map<String, Object> generationConfig)
             throws JsonProcessingException {
-        Map<String, Object> part = new LinkedHashMap<>();
-        part.put("text", prompt);
-
-        Map<String, Object> content = new LinkedHashMap<>();
-        content.put("parts", List.of(part));
-
-        Map<String, Object> requestMap = new LinkedHashMap<>();
-        requestMap.put("contents", List.of(content));
-        requestMap.put("generationConfig", generationConfig);
-
-        return objectMapper.writeValueAsString(requestMap);
+        return objectMapper.writeValueAsString(Map.of(
+                "contents", List.of(Map.of("parts", List.of(Map.of("text", prompt)))),
+                "generationConfig", generationConfig
+        ));
     }
 
     /**
-     * Defines the Gemini responseSchema for structured output.
-     * All 5 analysis fields are declared as required strings.
-     * The API enforces this contract before returning the response.
+     * Gemini responseSchema — all 6 analysis fields declared as required strings.
+     * API enforces this contract before returning the response.
      */
     private Map<String, Object> buildAnalysisResultSchema() {
-        Map<String, Object> schema = new LinkedHashMap<>();
-        schema.put("type", "object");
-        schema.put("required",
-                List.of("documentType", "title", "authors", "summary", "keyTakeaway", "qualityScore"));
-
         Map<String, Object> properties = new LinkedHashMap<>();
-        properties.put("documentType", stringProperty());
-        properties.put("title",        stringProperty());
-        properties.put("authors",      stringProperty());
-        properties.put("summary",      stringProperty());
-        properties.put("keyTakeaway",  stringProperty());
-        properties.put("qualityScore", stringProperty());
-        schema.put("properties", properties);
-
-        return schema;
-    }
-
-    private Map<String, String> stringProperty() {
-        return Map.of("type", "string");
+        for (String field : List.of("documentType", "title", "authors", "summary", "keyTakeaway", "qualityScore")) {
+            properties.put(field, Map.of("type", "string"));
+        }
+        return Map.of(
+                "type", "object",
+                "required", List.of("documentType", "title", "authors", "summary", "keyTakeaway", "qualityScore"),
+                "properties", properties
+        );
     }
 
     // ── Plain Text Response Extractor ─────────────────────────────────────────
 
-    /**
-     * Extracts plain text from a Gemini response.
-     * Used by summarizeChunk() and summarizeText() — not by analyze().
-     */
     private String extractTextFromResponse(String rawResponse) {
         try {
-            JsonNode root = objectMapper.readTree(rawResponse);
-            JsonNode parts = root.path("candidates")
-                                 .path(0)
-                                 .path("content")
-                                 .path("parts");
+            JsonNode parts = objectMapper.readTree(rawResponse)
+                    .path("candidates").path(0).path("content").path("parts");
             if (parts.isArray() && !parts.isEmpty()) {
                 String text = parts.get(0).path("text").asText("").trim();
                 if (!text.isBlank()) return text;
             }
-            throw new AiServiceException("AI returned no summary text.");
+            throw new AiServiceException("Gemini returned no summary text.");
         } catch (JsonProcessingException ex) {
-            throw new AiServiceException("Failed to parse AI summary response.");
-        }
-    }
-
-    // ── Sleep Utility ─────────────────────────────────────────────────────────
-
-    private void sleep(long ms) {
-        try {
-            Thread.sleep(ms);
-        } catch (InterruptedException ie) {
-            Thread.currentThread().interrupt();
+            throw new AiServiceException("Failed to parse Gemini summary response.");
         }
     }
 }

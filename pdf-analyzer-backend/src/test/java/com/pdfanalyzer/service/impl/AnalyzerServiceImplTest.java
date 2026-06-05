@@ -9,7 +9,6 @@ import com.pdfanalyzer.model.PdfInspectionResult;
 import com.pdfanalyzer.model.DocumentType;
 import com.pdfanalyzer.service.AiAnalysisService;
 import com.pdfanalyzer.service.AnalyzeService;
-import com.pdfanalyzer.service.DocumentClassificationService;
 import com.pdfanalyzer.service.PdfDownloadService;
 import com.pdfanalyzer.service.PdfExtractionOrchestrator;
 import com.pdfanalyzer.service.PdfInspectionService;
@@ -37,7 +36,6 @@ class AnalyzerServiceImplTest {
     @Mock private PdfDownloadService pdfDownloadService;
     @Mock private PdfInspectionService pdfInspectionService;
     @Mock private PdfExtractionOrchestrator extractionOrchestrator;
-    @Mock private DocumentClassificationService classificationService;
     @Mock private AiAnalysisService aiAnalysisService;
 
     private AnalyzeService analyzeService;
@@ -51,7 +49,6 @@ class AnalyzerServiceImplTest {
                 pdfDownloadService,
                 pdfInspectionService,
                 extractionOrchestrator,
-                classificationService,
                 aiAnalysisService
         );
     }
@@ -82,7 +79,6 @@ class AnalyzerServiceImplTest {
         when(pdfDownloadService.download(anyString())).thenReturn(DUMMY_PDF);
         when(pdfInspectionService.inspect(any())).thenReturn(nativeInspection());
         when(extractionOrchestrator.extract(any(), any())).thenReturn("Extracted text content here.");
-        when(classificationService.classify(anyString(), any())).thenReturn("Research Paper");
         when(aiAnalysisService.analyze(anyString(), anyString())).thenReturn(aiResult);
 
         AnalyzeRequest request = new AnalyzeRequest();
@@ -142,7 +138,7 @@ class AnalyzerServiceImplTest {
         when(pdfDownloadService.download(anyString())).thenReturn(DUMMY_PDF);
         when(pdfInspectionService.inspect(any())).thenReturn(nativeInspection());
         when(extractionOrchestrator.extract(any(), any())).thenReturn("Quarterly revenue report.");
-        when(classificationService.classify(anyString(), any())).thenReturn("Business Report");
+        
         when(aiAnalysisService.analyze(anyString(), anyString())).thenReturn(aiResult);
 
         AnalyzeRequest request = new AnalyzeRequest();
@@ -155,7 +151,6 @@ class AnalyzerServiceImplTest {
         verify(pdfDownloadService).download("https://example.com/report.pdf");
         verify(pdfInspectionService).inspect(DUMMY_PDF);
         verify(extractionOrchestrator).extract(any(), any());
-        verify(classificationService).classify(anyString(), any());
         verify(aiAnalysisService).analyze(anyString(), anyString());
     }
 }
