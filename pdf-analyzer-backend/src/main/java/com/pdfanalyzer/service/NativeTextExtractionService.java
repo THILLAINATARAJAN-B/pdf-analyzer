@@ -28,6 +28,7 @@ public class NativeTextExtractionService {
 
     @Value("${pdf.processing.max-text-chars:40000}")
     private int maxTextChars;
+    private static final int HEADER_PAGES = 5;
 
     public String extract(byte[] pdfBytes) {
         try (PDDocument document = Loader.loadPDF(pdfBytes)) {
@@ -63,7 +64,8 @@ public class NativeTextExtractionService {
         log.info("Smart sampling — extracting first 3 + last 2 pages from {} total", totalPages);
 
         stripper.setStartPage(1);
-        stripper.setEndPage(Math.min(3, totalPages));
+        
+        stripper.setEndPage(Math.min(HEADER_PAGES, totalPages));
         String header = stripper.getText(document);
 
         int lastStart = Math.max(totalPages - 1, 4);
@@ -72,7 +74,7 @@ public class NativeTextExtractionService {
         String footer = stripper.getText(document);
 
         return header
-                + "\n\n[... middle sections omitted for token efficiency ...]\n\n"
+                + "\n\n[--- Pages 6 to 10 omitted for token efficiency ---]\n\n"
                 + footer;
     }
 

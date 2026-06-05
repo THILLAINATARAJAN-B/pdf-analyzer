@@ -47,6 +47,9 @@ public class PromptBuilder {
                 - keyTakeaway must be specific to this document — not generic filler.
                 - title: Extract ONLY the exact title as printed in the document.
                 - authors: If more than 5 authors, return first 3 followed by "et al."
+                - "If OCR text for names appears garbled (e.g. "Ashlsh Vaswanl", characters like
+"l" substituted for "i"), return "Not Found" — NEVER fabricate author names
+from your knowledge of the document's topic."
 
                 Document text:
                 ---

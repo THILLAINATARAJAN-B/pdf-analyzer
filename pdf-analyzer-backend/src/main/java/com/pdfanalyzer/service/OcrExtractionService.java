@@ -24,7 +24,7 @@ import java.util.List;
 @Service
 public class OcrExtractionService {
 
-    private static final float RENDER_DPI = 200f;
+    private static final float RENDER_DPI = 300f;
 
     @Value("${pdf.ocr.tessdata-path:}")
     private String configuredTessdataPath;
@@ -78,25 +78,28 @@ public class OcrExtractionService {
             List<String> pageTexts = new ArrayList<>();
 
             for (int page = 0; page < pagesToProcess; page++) {
-                BufferedImage image = null;
-                try {
-                    image = renderer.renderImageWithDPI(page, RENDER_DPI, ImageType.GRAY);
-                    String pageText = tesseract.doOCR(image);
-                    if (pageText != null && !pageText.isBlank()) {
-                        pageTexts.add(pageText.trim());
-                    }
-                    log.debug("OCR completed for page {}", page + 1);
-                } catch (TesseractException ex) {
-                    log.warn("OCR failed for page {} — skipping: {}", page + 1, ex.getMessage());
-                } catch (Error ex) {
-                    log.error("OCR native engine failure on page {}: {}", page + 1, ex.getMessage());
-                    throw new PdfProcessingException(
-                            "OCR engine failed while processing this scanned PDF. "
-                                    + "Ensure Tesseract is correctly installed with eng.traineddata.");
-                } finally {
-                    if (image != null) image.flush(); // release BufferedImage native memory
-                }
-            }
+    BufferedImage rawImage    = null;
+    BufferedImage binaryImage = null;
+    try {
+        rawImage    = renderer.renderImageWithDPI(page, RENDER_DPI, ImageType.RGB);
+        binaryImage = preprocessImage(rawImage);
+        String pageText = tesseract.doOCR(binaryImage);
+        if (pageText != null && !pageText.isBlank()) {
+            pageTexts.add(pageText.trim());
+        }
+        log.debug("OCR completed for page {}", page + 1);
+    } catch (TesseractException ex) {
+        log.warn("OCR failed for page {} — skipping: {}", page + 1, ex.getMessage());
+    } catch (Error ex) {
+        log.error("OCR native engine failure on page {}: {}", page + 1, ex.getMessage());
+        throw new PdfProcessingException(
+                "OCR engine failed while processing this scanned PDF. "
+                        + "Ensure Tesseract is correctly installed with eng.traineddata.");
+    } finally {
+        if (rawImage    != null) rawImage.flush();
+        if (binaryImage != null) binaryImage.flush();
+    }
+}
 
             if (pageTexts.isEmpty()) {
                 throw new PdfProcessingException(
@@ -135,8 +138,26 @@ public class OcrExtractionService {
         Tesseract tesseract = new Tesseract();
         tesseract.setDatapath(tessdataPath);
         tesseract.setLanguage("eng");
-        tesseract.setPageSegMode(ITessAPI.TessPageSegMode.PSM_AUTO);
+        tesseract.setPageSegMode(ITessAPI.TessPageSegMode.PSM_AUTO_OSD);
         tesseract.setOcrEngineMode(ITessAPI.TessOcrEngineMode.OEM_LSTM_ONLY);
         return tesseract;
     }
+
+    private BufferedImage preprocessImage(BufferedImage src) {
+    int width  = src.getWidth();
+    int height = src.getHeight();
+    BufferedImage binary = new BufferedImage(width, height, BufferedImage.TYPE_BYTE_GRAY);
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            int rgb  = src.getRGB(x, y);
+            int r    = (rgb >> 16) & 0xFF;
+            int g    = (rgb >> 8)  & 0xFF;
+            int b    =  rgb        & 0xFF;
+            int luma = (int)(0.299 * r + 0.587 * g + 0.114 * b);
+            int out  = (luma > 180) ? 255 : 0;
+            binary.setRGB(x, y, (out << 16) | (out << 8) | out);
+        }
+    }
+    return binary;
+}
 }
