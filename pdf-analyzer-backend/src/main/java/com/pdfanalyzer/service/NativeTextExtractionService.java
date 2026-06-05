@@ -60,21 +60,37 @@ public class NativeTextExtractionService {
     }
 
     private String smartSample(PDDocument document, PDFTextStripper stripper,
-                                int totalPages) throws IOException {
-        log.info("Smart sampling — extracting first 3 + last 2 pages from {} total", totalPages);
+                            int totalPages) throws IOException {
 
+        int footerStart = totalPages - 2 + 1;  // last 2 pages
+
+        // Guard: header and footer overlap — just extract everything
+        if (footerStart <= HEADER_PAGES + 1) {
+            log.info("Smart sampling — short doc ({} pages), extracting fully", totalPages);
+            stripper.setStartPage(1);
+            stripper.setEndPage(totalPages);
+            return stripper.getText(document);
+        }
+
+        log.info("Smart sampling — extracting first {} + last 2 pages from {} total",
+                HEADER_PAGES, totalPages);
+
+        // Header: pages 1–5 (title, abstract, full author block)
         stripper.setStartPage(1);
-        
-        stripper.setEndPage(Math.min(HEADER_PAGES, totalPages));
+        stripper.setEndPage(HEADER_PAGES);
         String header = stripper.getText(document);
 
-        int lastStart = Math.max(totalPages - 1, 4);
-        stripper.setStartPage(lastStart);
+        // Footer: last 2 pages (conclusions, acknowledgements)
+        stripper.setStartPage(footerStart);
         stripper.setEndPage(totalPages);
         String footer = stripper.getText(document);
 
+        int omittedStart = HEADER_PAGES + 1;
+        int omittedEnd   = footerStart - 1;
+
         return header
-                + "\n\n[--- Pages 6 to 10 omitted for token efficiency ---]\n\n"
+                + "\n\n[--- Pages " + omittedStart + " to " + omittedEnd
+                + " omitted for token efficiency ---]\n\n"
                 + footer;
     }
 
