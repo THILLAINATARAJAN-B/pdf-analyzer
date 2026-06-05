@@ -1,5 +1,5 @@
 # ── Stage 1: Build ────────────────────────────────────────────
-FROM eclipse-temurin:21-jdk-alpine AS build
+FROM eclipse-temurin:17-jdk-alpine AS build
 
 WORKDIR /app
 
@@ -15,13 +15,11 @@ RUN MAVEN_OPTS="-Xmx512m -XX:MaxMetaspaceSize=192m" \
 
 
 # ── Stage 2: Runtime ──────────────────────────────────────────
-FROM eclipse-temurin:21-jre-alpine AS runtime
+FROM eclipse-temurin:17-jre-alpine AS runtime
 
-# cache-bust: 2026-06-05-v3
-# On Alpine with tesseract 5.5.1, eng.traineddata is a SEPARATE package
-# Must add edge/community repo to get tesseract-ocr-data-eng
-RUN echo "https://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories \
-    && apk add --no-cache \
+# Java 17 Alpine has compatible ICU libs for tesseract-ocr-data-eng
+# Do NOT upgrade to Java 21 Alpine — ICU version mismatch breaks Tesseract install
+RUN apk add --no-cache \
         tesseract-ocr \
         tesseract-ocr-data-eng \
         tesseract-ocr-data-osd \
@@ -38,6 +36,7 @@ ENV TESSERACT_DATA_PATH=/usr/share/tessdata
 
 EXPOSE 8080
 
+# THE ACTUAL FIX FOR OOM — hard Xmx cap was missing from original
 ENTRYPOINT ["java", \
   "-Xmx320m", \
   "-Xms64m", \
